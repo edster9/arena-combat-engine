@@ -1,0 +1,43 @@
+# Build directories
+build/
+cmake-build-*/
+out/
+
+# Reference materials (commercial, do not distribute)
+books/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Compiled objects
+*.o
+*.obj
+*.exe
+*.out
+*.app
+
+# Libraries
+*.a
+*.so
+*.dylib
+*.lib
+*.dll
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor backups
+*.bak
+*.orig
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+tmp/
