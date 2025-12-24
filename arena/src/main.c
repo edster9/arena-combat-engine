@@ -4,6 +4,7 @@
  *
  * Milestone E3: Arena Walls + Obstacles
  * Milestone E4: Placeholder Cars for Scale Testing
+ * Milestone E5: OBJ Loading + Car Rotation
  */
 
 #include "platform/platform.h"
@@ -12,10 +13,17 @@
 #include "render/camera.h"
 #include "render/floor.h"
 #include "render/mesh.h"
+#include "render/obj_loader.h"
 
 #include <GL/glew.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
+
+// PI constant for rotation
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 #define WINDOW_WIDTH 1920
 #define WINDOW_HEIGHT 1080
@@ -124,8 +132,8 @@ static void draw_obstacles(BoxRenderer* r) {
     box_renderer_draw(r, vec3(-15, 1.5f, 0), vec3(1.5f, 3, 12), barrier_color);
 }
 
-// Draw test cars for scale validation
-static void draw_test_cars(BoxRenderer* r) {
+// Draw test cars for scale validation (placeholder version)
+static void draw_test_cars_placeholder(BoxRenderer* r) {
     // Car colors (team colors)
     Vec3 red_team = vec3(0.8f, 0.2f, 0.15f);    // Red team
     Vec3 blue_team = vec3(0.15f, 0.3f, 0.8f);   // Blue team
@@ -144,6 +152,39 @@ static void draw_test_cars(BoxRenderer* r) {
     // Additional cars for density testing
     draw_placeholder_car(r, vec3(20, 0, 15), 0, yellow_team);
     draw_placeholder_car(r, vec3(-22, 0, -18), 0, green_team);
+}
+
+// Draw test cars using loaded 3D models
+static void draw_test_cars_3d(BoxRenderer* r, LoadedMesh* car_mesh, float car_scale) {
+    if (!car_mesh->valid) {
+        draw_test_cars_placeholder(r);
+        return;
+    }
+
+    // Car colors (team colors)
+    Vec3 red_team = vec3(0.8f, 0.2f, 0.15f);
+    Vec3 blue_team = vec3(0.15f, 0.3f, 0.8f);
+    Vec3 yellow_team = vec3(0.9f, 0.75f, 0.1f);
+    Vec3 green_team = vec3(0.2f, 0.7f, 0.3f);
+
+    // Place cars around arena with different rotations
+    // Red team - facing different directions
+    box_renderer_draw_mesh(r, car_mesh->vao, car_mesh->vertex_count,
+                           vec3(5, 0, 8), car_scale, 0.0f, red_team);
+    box_renderer_draw_mesh(r, car_mesh->vao, car_mesh->vertex_count,
+                           vec3(-8, 0, 5), car_scale, (float)(M_PI * 0.5), red_team);
+
+    // Blue team - facing opposite directions
+    box_renderer_draw_mesh(r, car_mesh->vao, car_mesh->vertex_count,
+                           vec3(-5, 0, -10), car_scale, (float)M_PI, blue_team);
+    box_renderer_draw_mesh(r, car_mesh->vao, car_mesh->vertex_count,
+                           vec3(10, 0, -6), car_scale, (float)(M_PI * 1.5), blue_team);
+
+    // Additional cars
+    box_renderer_draw_mesh(r, car_mesh->vao, car_mesh->vertex_count,
+                           vec3(20, 0, 15), car_scale, (float)(M_PI * 0.25), yellow_team);
+    box_renderer_draw_mesh(r, car_mesh->vao, car_mesh->vertex_count,
+                           vec3(-22, 0, -18), car_scale, (float)(M_PI * 1.25), green_team);
 }
 
 int main(int argc, char* argv[]) {
@@ -187,6 +228,22 @@ int main(int argc, char* argv[]) {
         floor_destroy(&arena_floor);
         platform_shutdown(&platform);
         return 1;
+    }
+
+    // Load car model
+    LoadedMesh car_mesh;
+    float car_scale = 1.0f;
+    if (obj_load(&car_mesh, "assets/models/vehicles/kenney-car-kit/Models/OBJ format/sedan-sports.obj")) {
+        // Calculate scale to make car approximately CAR_LENGTH long
+        Vec3 model_size = obj_get_size(&car_mesh);
+        float model_length = fmaxf(model_size.x, model_size.z);  // Use longest horizontal axis
+        if (model_length > 0.001f) {
+            car_scale = CAR_LENGTH / model_length;
+        }
+        printf("Loaded car model: %.1f x %.1f x %.1f, scale: %.2f\n",
+               model_size.x, model_size.y, model_size.z, car_scale);
+    } else {
+        printf("Warning: Could not load car model, using placeholders\n");
     }
 
     // Light direction (sun from upper-right-front)
@@ -265,7 +322,7 @@ int main(int argc, char* argv[]) {
         box_renderer_begin(&box_renderer, &view, &projection, light_dir);
         draw_arena_walls(&box_renderer);
         draw_obstacles(&box_renderer);
-        draw_test_cars(&box_renderer);
+        draw_test_cars_3d(&box_renderer, &car_mesh, car_scale);
         box_renderer_end(&box_renderer);
 
         // Swap buffers
@@ -273,6 +330,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Cleanup
+    obj_destroy(&car_mesh);
     box_renderer_destroy(&box_renderer);
     floor_destroy(&arena_floor);
     platform_shutdown(&platform);

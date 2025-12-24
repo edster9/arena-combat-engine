@@ -1,5 +1,6 @@
 #include "mesh.h"
 #include <stdio.h>
+#include <math.h>
 
 // Vertex shader for lit boxes
 static const char* box_vert_src =
@@ -166,6 +167,47 @@ void box_renderer_draw(BoxRenderer* r, Vec3 pos, Vec3 size, Vec3 color) {
     shader_set_vec3(&r->shader, "objectColor", color);
 
     glDrawArrays(GL_TRIANGLES, 0, r->unit_box.vertex_count);
+}
+
+void box_renderer_draw_mesh(BoxRenderer* r, GLuint vao, int vertex_count,
+                            Vec3 pos, float scale, float rotation_y, Vec3 color) {
+    // Build model matrix: translate * rotate * scale
+    // For Y-axis rotation: [cos, 0, sin, 0], [0, 1, 0, 0], [-sin, 0, cos, 0], [0, 0, 0, 1]
+    float c = cosf(rotation_y);
+    float s = sinf(rotation_y);
+
+    Mat4 model = mat4_identity();
+
+    // Combined transform (scale, rotate Y, translate) in column-major order
+    // This is: T * Ry * S where operations apply right-to-left
+    model.m[0] = c * scale;
+    model.m[1] = 0;
+    model.m[2] = -s * scale;
+    model.m[3] = 0;
+
+    model.m[4] = 0;
+    model.m[5] = scale;
+    model.m[6] = 0;
+    model.m[7] = 0;
+
+    model.m[8] = s * scale;
+    model.m[9] = 0;
+    model.m[10] = c * scale;
+    model.m[11] = 0;
+
+    model.m[12] = pos.x;
+    model.m[13] = pos.y;
+    model.m[14] = pos.z;
+    model.m[15] = 1;
+
+    shader_set_mat4(&r->shader, "model", &model);
+    shader_set_vec3(&r->shader, "objectColor", color);
+
+    // Bind the loaded mesh's VAO and draw
+    glBindVertexArray(vao);
+    glDrawArrays(GL_TRIANGLES, 0, vertex_count);
+    // Rebind the box VAO for subsequent box_renderer_draw calls
+    glBindVertexArray(r->unit_box.vao);
 }
 
 void box_renderer_end(BoxRenderer* r) {

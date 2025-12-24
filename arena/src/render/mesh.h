@@ -14,7 +14,7 @@ typedef struct BoxMesh {
     int vertex_count;
 } BoxMesh;
 
-// Box mesh renderer (shared shader for all boxes)
+// Box mesh renderer (shared shader for all boxes and loaded meshes)
 typedef struct BoxRenderer {
     Shader shader;
     BoxMesh unit_box;  // 1x1x1 box centered at origin
@@ -30,6 +30,11 @@ void box_renderer_begin(BoxRenderer* r, Mat4* view, Mat4* projection, Vec3 light
 
 // Draw a box with position, size, and color
 void box_renderer_draw(BoxRenderer* r, Vec3 pos, Vec3 size, Vec3 color);
+
+// Draw a loaded mesh (VAO) with position, scale, rotation and color
+// rotation_y is in radians
+void box_renderer_draw_mesh(BoxRenderer* r, GLuint vao, int vertex_count,
+                            Vec3 pos, float scale, float rotation_y, Vec3 color);
 
 // End rendering (resets OpenGL state)
 void box_renderer_end(BoxRenderer* r);
