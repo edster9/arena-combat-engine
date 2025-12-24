@@ -54,7 +54,7 @@ void camera_update(FlyCamera* cam, InputState* input, float dt) {
             }
             // Don't apply any mouse input while waiting
         } else {
-            cam->yaw += input->mouse_dx * cam->mouse_sensitivity;
+            cam->yaw -= input->mouse_dx * cam->mouse_sensitivity;
             cam->pitch -= input->mouse_dy * cam->mouse_sensitivity;
         }
     }
@@ -117,4 +117,40 @@ Mat4 camera_view_matrix(FlyCamera* cam) {
 
 Mat4 camera_projection_matrix(FlyCamera* cam, float aspect) {
     return mat4_perspective(cam->fov, aspect, cam->near, cam->far);
+}
+
+void camera_screen_to_ray(FlyCamera* cam, int screen_x, int screen_y,
+                          int screen_width, int screen_height,
+                          Vec3* ray_origin, Vec3* ray_dir) {
+    // Convert screen coords to normalized device coords (-1 to 1)
+    float ndc_x = (2.0f * screen_x) / screen_width - 1.0f;
+    float ndc_y = 1.0f - (2.0f * screen_y) / screen_height;  // Flip Y
+
+    // Calculate ray direction in view space
+    // Using the FOV and aspect ratio
+    float aspect = (float)screen_width / (float)screen_height;
+    float half_fov_tan = tanf(cam->fov * 0.5f);
+
+    // View space ray direction (camera looks down -Z)
+    Vec3 view_ray = vec3(
+        ndc_x * half_fov_tan * aspect,
+        ndc_y * half_fov_tan,
+        -1.0f
+    );
+
+    // Transform to world space using camera orientation
+    Vec3 forward = camera_forward(cam);
+    Vec3 right = camera_right(cam);
+    Vec3 up = vec3(0, 1, 0);
+
+    // Build camera basis (right-handed, looking down -Z in view space)
+    // world_dir = right * view_ray.x + up * view_ray.y + forward * view_ray.z
+    Vec3 world_dir = vec3(
+        right.x * view_ray.x + up.x * view_ray.y - forward.x * view_ray.z,
+        right.y * view_ray.x + up.y * view_ray.y - forward.y * view_ray.z,
+        right.z * view_ray.x + up.z * view_ray.y - forward.z * view_ray.z
+    );
+
+    *ray_origin = cam->position;
+    *ray_dir = vec3_normalize(world_dir);
 }

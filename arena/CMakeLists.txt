@@ -26,6 +26,7 @@ set(SOURCES
     src/render/floor.c
     src/render/mesh.c
     src/render/obj_loader.c
+    src/game/entity.c
 )
 
 # Executable

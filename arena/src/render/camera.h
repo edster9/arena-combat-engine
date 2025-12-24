@@ -34,4 +34,10 @@ Vec3 camera_up(FlyCamera* cam);
 Mat4 camera_view_matrix(FlyCamera* cam);
 Mat4 camera_projection_matrix(FlyCamera* cam, float aspect);
 
+// Generate a picking ray from screen coordinates (0,0 = top-left)
+// ray_dir is returned normalized
+void camera_screen_to_ray(FlyCamera* cam, int screen_x, int screen_y,
+                          int screen_width, int screen_height,
+                          Vec3* ray_origin, Vec3* ray_dir);
+
 #endif // CAMERA_H

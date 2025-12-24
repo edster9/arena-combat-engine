@@ -5,6 +5,7 @@
  * Milestone E3: Arena Walls + Obstacles
  * Milestone E4: Placeholder Cars for Scale Testing
  * Milestone E5: OBJ Loading + Car Rotation
+ * Milestone E6: Entity System + Click Selection
  */
 
 #include "platform/platform.h"
@@ -14,6 +15,7 @@
 #include "render/floor.h"
 #include "render/mesh.h"
 #include "render/obj_loader.h"
+#include "game/entity.h"
 
 #include <GL/glew.h>
 #include <stdio.h>
@@ -132,59 +134,65 @@ static void draw_obstacles(BoxRenderer* r) {
     box_renderer_draw(r, vec3(-15, 1.5f, 0), vec3(1.5f, 3, 12), barrier_color);
 }
 
-// Draw test cars for scale validation (placeholder version)
-static void draw_test_cars_placeholder(BoxRenderer* r) {
-    // Car colors (team colors)
-    Vec3 red_team = vec3(0.8f, 0.2f, 0.15f);    // Red team
-    Vec3 blue_team = vec3(0.15f, 0.3f, 0.8f);   // Blue team
-    Vec3 yellow_team = vec3(0.9f, 0.75f, 0.1f); // Yellow team
-    Vec3 green_team = vec3(0.2f, 0.7f, 0.3f);   // Green team
+// Draw all vehicle entities
+static void draw_entities(BoxRenderer* r, EntityManager* em, LoadedMesh* car_mesh) {
+    for (int i = 0; i < em->count; i++) {
+        Entity* e = &em->entities[i];
+        if (!e->active || e->type != ENTITY_VEHICLE) continue;
 
-    // Place cars around the arena for scale testing
-    // Red team - near center
-    draw_placeholder_car(r, vec3(5, 0, 8), 0, red_team);
-    draw_placeholder_car(r, vec3(-8, 0, 5), 0, red_team);
+        // Use highlight color if selected, otherwise normal team color
+        Vec3 color = e->selected ? team_get_highlight_color(e->team)
+                                 : team_get_color(e->team);
 
-    // Blue team - opposite side
-    draw_placeholder_car(r, vec3(-5, 0, -10), 0, blue_team);
-    draw_placeholder_car(r, vec3(10, 0, -6), 0, blue_team);
-
-    // Additional cars for density testing
-    draw_placeholder_car(r, vec3(20, 0, 15), 0, yellow_team);
-    draw_placeholder_car(r, vec3(-22, 0, -18), 0, green_team);
+        if (car_mesh->valid) {
+            box_renderer_draw_mesh(r, car_mesh->vao, car_mesh->vertex_count,
+                                   e->position, e->scale, e->rotation_y, color);
+        } else {
+            // Fallback to placeholder
+            draw_placeholder_car(r, e->position, e->rotation_y, color);
+        }
+    }
 }
 
-// Draw test cars using loaded 3D models
-static void draw_test_cars_3d(BoxRenderer* r, LoadedMesh* car_mesh, float car_scale) {
-    if (!car_mesh->valid) {
-        draw_test_cars_placeholder(r);
-        return;
-    }
+// Create initial test vehicles
+static void create_test_vehicles(EntityManager* em, float car_scale) {
+    Entity* e;
 
-    // Car colors (team colors)
-    Vec3 red_team = vec3(0.8f, 0.2f, 0.15f);
-    Vec3 blue_team = vec3(0.15f, 0.3f, 0.8f);
-    Vec3 yellow_team = vec3(0.9f, 0.75f, 0.1f);
-    Vec3 green_team = vec3(0.2f, 0.7f, 0.3f);
+    // Red team
+    e = entity_manager_create(em, ENTITY_VEHICLE, TEAM_RED);
+    e->position = vec3(5, 0, 8);
+    e->rotation_y = 0.0f;
+    e->scale = car_scale;
 
-    // Place cars around arena with different rotations
-    // Red team - facing different directions
-    box_renderer_draw_mesh(r, car_mesh->vao, car_mesh->vertex_count,
-                           vec3(5, 0, 8), car_scale, 0.0f, red_team);
-    box_renderer_draw_mesh(r, car_mesh->vao, car_mesh->vertex_count,
-                           vec3(-8, 0, 5), car_scale, (float)(M_PI * 0.5), red_team);
+    e = entity_manager_create(em, ENTITY_VEHICLE, TEAM_RED);
+    e->position = vec3(-8, 0, 5);
+    e->rotation_y = (float)(M_PI * 0.5);
+    e->scale = car_scale;
 
-    // Blue team - facing opposite directions
-    box_renderer_draw_mesh(r, car_mesh->vao, car_mesh->vertex_count,
-                           vec3(-5, 0, -10), car_scale, (float)M_PI, blue_team);
-    box_renderer_draw_mesh(r, car_mesh->vao, car_mesh->vertex_count,
-                           vec3(10, 0, -6), car_scale, (float)(M_PI * 1.5), blue_team);
+    // Blue team
+    e = entity_manager_create(em, ENTITY_VEHICLE, TEAM_BLUE);
+    e->position = vec3(-5, 0, -10);
+    e->rotation_y = (float)M_PI;
+    e->scale = car_scale;
 
-    // Additional cars
-    box_renderer_draw_mesh(r, car_mesh->vao, car_mesh->vertex_count,
-                           vec3(20, 0, 15), car_scale, (float)(M_PI * 0.25), yellow_team);
-    box_renderer_draw_mesh(r, car_mesh->vao, car_mesh->vertex_count,
-                           vec3(-22, 0, -18), car_scale, (float)(M_PI * 1.25), green_team);
+    e = entity_manager_create(em, ENTITY_VEHICLE, TEAM_BLUE);
+    e->position = vec3(10, 0, -6);
+    e->rotation_y = (float)(M_PI * 1.5);
+    e->scale = car_scale;
+
+    // Yellow team
+    e = entity_manager_create(em, ENTITY_VEHICLE, TEAM_YELLOW);
+    e->position = vec3(20, 0, 15);
+    e->rotation_y = (float)(M_PI * 0.25);
+    e->scale = car_scale;
+
+    // Green team
+    e = entity_manager_create(em, ENTITY_VEHICLE, TEAM_GREEN);
+    e->position = vec3(-22, 0, -18);
+    e->rotation_y = (float)(M_PI * 1.25);
+    e->scale = car_scale;
+
+    printf("Created %d vehicles\n", em->count);
 }
 
 int main(int argc, char* argv[]) {
@@ -193,6 +201,7 @@ int main(int argc, char* argv[]) {
 
     printf("=== Arena ===\n");
     printf("Controls:\n");
+    printf("  Left-click: Select vehicle\n");
     printf("  Right-click + drag: Look around\n");
     printf("  WASD: Move\n");
     printf("  E/Space: Move up\n");
@@ -245,6 +254,11 @@ int main(int argc, char* argv[]) {
     } else {
         printf("Warning: Could not load car model, using placeholders\n");
     }
+
+    // Initialize entity manager and create test vehicles
+    EntityManager entities;
+    entity_manager_init(&entities);
+    create_test_vehicles(&entities, car_scale);
 
     // Light direction (sun from upper-right-front)
     Vec3 light_dir = vec3_normalize(vec3(0.5f, -1.0f, 0.3f));
@@ -303,6 +317,29 @@ int main(int argc, char* argv[]) {
             platform.should_quit = true;
         }
 
+        // Left click to select vehicles (only when not looking around)
+        if (input.mouse_pressed[MOUSE_LEFT] && !input.mouse_captured) {
+            Vec3 ray_origin, ray_dir;
+            camera_screen_to_ray(&camera, input.mouse_x, input.mouse_y,
+                                 platform.width, platform.height,
+                                 &ray_origin, &ray_dir);
+
+            int hit_id = entity_manager_pick(&entities, ray_origin, ray_dir);
+            if (hit_id >= 0) {
+                entity_manager_select(&entities, hit_id);
+                Entity* selected = entity_manager_get_selected(&entities);
+                if (selected) {
+                    printf("Selected: %s team vehicle at (%.1f, %.1f)\n",
+                           selected->team == TEAM_RED ? "Red" :
+                           selected->team == TEAM_BLUE ? "Blue" :
+                           selected->team == TEAM_YELLOW ? "Yellow" : "Green",
+                           selected->position.x, selected->position.z);
+                }
+            } else {
+                entity_manager_deselect_all(&entities);
+            }
+        }
+
         // Update camera
         camera_update(&camera, &input, dt);
 
@@ -322,7 +359,7 @@ int main(int argc, char* argv[]) {
         box_renderer_begin(&box_renderer, &view, &projection, light_dir);
         draw_arena_walls(&box_renderer);
         draw_obstacles(&box_renderer);
-        draw_test_cars_3d(&box_renderer, &car_mesh, car_scale);
+        draw_entities(&box_renderer, &entities, &car_mesh);
         box_renderer_end(&box_renderer);
 
         // Swap buffers
