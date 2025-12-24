@@ -26,6 +26,7 @@ set(SOURCES
     src/render/floor.c
     src/render/mesh.c
     src/render/obj_loader.c
+    src/render/line_render.c
     src/game/entity.c
     src/ui/ui_render.c
     src/ui/ui_text.c

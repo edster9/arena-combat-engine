@@ -16,6 +16,7 @@
 #include "render/mesh.h"
 #include "render/obj_loader.h"
 #include "game/entity.h"
+#include "render/line_render.h"
 #include "ui/ui_render.h"
 #include "ui/ui_text.h"
 
@@ -50,6 +51,31 @@ typedef struct {
     int selected_phase;      // 0-4, which phase box is selected
     int current_speed;       // Current speed in mph
 } PlanningState;
+
+// Calculate next speed based on choice
+static int calculate_next_speed(int current_speed, SpeedChoice choice) {
+    switch (choice) {
+        case SPEED_BRAKE: return current_speed > 0 ? current_speed - 5 : 0;
+        case SPEED_ACCEL: return current_speed + 5;
+        case SPEED_HOLD:
+        default: return current_speed;
+    }
+}
+
+// Calculate movement distance in game units for a given speed
+// Car Wars: distance per turn = speed / 10 inches
+// Our scale: 1 game unit = 1 inch
+static float calculate_move_distance(int speed_mph) {
+    return (float)speed_mph / 10.0f;
+}
+
+// Calculate end position for a straight-line move
+static Vec3 calculate_end_position(Vec3 start, float rotation_y, float distance) {
+    // Forward direction based on rotation
+    float dx = sinf(rotation_y) * distance;
+    float dz = cosf(rotation_y) * distance;
+    return vec3(start.x + dx, start.y, start.z + dz);
+}
 
 // Check if point is inside rect
 static bool point_in_rect(float px, float py, UIRect rect) {
@@ -262,6 +288,13 @@ int main(int argc, char* argv[]) {
         // Continue anyway, just won't have text
     }
 
+    // Initialize line renderer for ghost path
+    LineRenderer line_renderer;
+    bool has_lines = line_renderer_init(&line_renderer);
+    if (!has_lines) {
+        fprintf(stderr, "Failed to initialize line renderer\n");
+    }
+
     // Light direction (sun from upper-right-front)
     Vec3 light_dir = vec3_normalize(vec3(0.5f, -1.0f, 0.3f));
 
@@ -279,6 +312,10 @@ int main(int argc, char* argv[]) {
         .selected_phase = 0,
         .current_speed = 0  // Starting from standstill
     };
+
+    // Debug flags
+    bool show_cars = true;       // Toggle with 'H' key
+    bool debug_ghost = false;    // Toggle with 'G' key for debug output
 
     // Timing
     double last_time = platform_get_time();
@@ -324,6 +361,18 @@ int main(int argc, char* argv[]) {
         // Quit on ESC
         if (input.keys_pressed[KEY_ESCAPE]) {
             platform.should_quit = true;
+        }
+
+        // Toggle car visibility with H
+        if (input.keys_pressed[KEY_H]) {
+            show_cars = !show_cars;
+            printf("Cars %s\n", show_cars ? "visible" : "hidden");
+        }
+
+        // Toggle ghost debug with G
+        if (input.keys_pressed[KEY_G]) {
+            debug_ghost = !debug_ghost;
+            printf("Ghost debug %s\n", debug_ghost ? "ON" : "OFF");
         }
 
         // Left click handling (UI buttons first, then 3D picking)
@@ -402,8 +451,81 @@ int main(int argc, char* argv[]) {
         box_renderer_begin(&box_renderer, &view, &projection, light_dir);
         draw_arena_walls(&box_renderer);
         draw_obstacles(&box_renderer);
-        draw_entities(&box_renderer, &entities, &car_mesh);
+        if (show_cars) {
+            draw_entities(&box_renderer, &entities, &car_mesh);
+        }
         box_renderer_end(&box_renderer);
+
+        // Draw ghost path for selected vehicle
+        if (has_lines) {
+            Entity* selected = entity_manager_get_selected(&entities);
+            if (selected) {
+                // Calculate predicted movement
+                int next_speed = calculate_next_speed(planning.current_speed, planning.speed_choice);
+                float move_dist = calculate_move_distance(next_speed);
+
+                // Height for ghost elements (raised above ground for visibility)
+                float ghost_y = 0.5f;
+
+                // Start and end positions (at ground level for path calc)
+                Vec3 start_ground = vec3(selected->position.x, 0, selected->position.z);
+                Vec3 end_ground = calculate_end_position(start_ground, selected->rotation_y, move_dist);
+
+                // Raised positions for rendering
+                Vec3 start = vec3(start_ground.x, ghost_y, start_ground.z);
+                Vec3 end = vec3(end_ground.x, ghost_y, end_ground.z);
+
+                // Debug output
+                if (debug_ghost) {
+                    printf("Ghost: speed=%d->%d, dist=%.2f, start=(%.1f,%.1f), end=(%.1f,%.1f), rot=%.2f\n",
+                           planning.current_speed, next_speed, move_dist,
+                           start.x, start.z, end.x, end.z, selected->rotation_y);
+                }
+
+                // Draw the path
+                line_renderer_begin(&line_renderer, &view, &projection);
+
+                // Path line (cyan/teal color)
+                Vec3 path_color = vec3(0.0f, 0.8f, 0.8f);
+                if (move_dist > 0.01f) {
+                    line_renderer_draw_line(&line_renderer, start, end, path_color, 0.9f);
+                }
+
+                // Circle at start position (always show)
+                line_renderer_draw_circle(&line_renderer, start, 1.0f, path_color, 0.8f);
+
+                // Circle at end position (larger, shows where car will be)
+                Vec3 end_color = vec3(0.2f, 1.0f, 0.4f);  // Green for destination
+                line_renderer_draw_circle(&line_renderer, end, 1.5f, end_color, 0.9f);
+
+                // Draw ghost car outline at end position
+                // Simple box outline representing car footprint
+                float car_half_len = 2.25f;  // Half of CAR_LENGTH
+                float car_half_wid = 1.0f;   // Half of CAR_WIDTH
+                float cos_r = cosf(selected->rotation_y);
+                float sin_r = sinf(selected->rotation_y);
+
+                // Four corners of car at end position (raised)
+                Vec3 corners[5];
+                corners[0] = vec3(end.x + (-car_half_len * sin_r - car_half_wid * cos_r),
+                                  ghost_y,
+                                  end.z + (-car_half_len * cos_r + car_half_wid * sin_r));
+                corners[1] = vec3(end.x + (car_half_len * sin_r - car_half_wid * cos_r),
+                                  ghost_y,
+                                  end.z + (car_half_len * cos_r + car_half_wid * sin_r));
+                corners[2] = vec3(end.x + (car_half_len * sin_r + car_half_wid * cos_r),
+                                  ghost_y,
+                                  end.z + (car_half_len * cos_r - car_half_wid * sin_r));
+                corners[3] = vec3(end.x + (-car_half_len * sin_r + car_half_wid * cos_r),
+                                  ghost_y,
+                                  end.z + (-car_half_len * cos_r - car_half_wid * sin_r));
+                corners[4] = corners[0];  // Close the loop
+
+                line_renderer_draw_path(&line_renderer, corners, 5, end_color, 0.9f);
+
+                line_renderer_end(&line_renderer);
+            }
+        }
 
         // Draw UI test panels
         ui_renderer_begin(&ui_renderer, platform.width, platform.height);
@@ -523,6 +645,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Cleanup
+    if (has_lines) line_renderer_destroy(&line_renderer);
     if (has_text) text_renderer_destroy(&text_renderer);
     ui_renderer_destroy(&ui_renderer);
     obj_destroy(&car_mesh);
