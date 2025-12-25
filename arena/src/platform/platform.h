@@ -115,6 +115,12 @@ void platform_toggle_fullscreen(Platform* p);
 #define KEY_F11         68
 #define KEY_F12         69
 
+// Arrow keys
+#define KEY_RIGHT       79
+#define KEY_LEFT        80
+#define KEY_DOWN        81
+#define KEY_UP          82
+
 #define MOUSE_LEFT      0
 #define MOUSE_MIDDLE    1
 #define MOUSE_RIGHT     2

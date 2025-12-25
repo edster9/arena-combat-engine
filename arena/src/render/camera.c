@@ -55,7 +55,7 @@ void camera_update(FlyCamera* cam, InputState* input, float dt) {
             // Don't apply any mouse input while waiting
         } else {
             cam->yaw -= input->mouse_dx * cam->mouse_sensitivity;
-            cam->pitch -= input->mouse_dy * cam->mouse_sensitivity;
+            cam->pitch += input->mouse_dy * cam->mouse_sensitivity;  // Inverted Y
         }
     }
 

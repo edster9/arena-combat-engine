@@ -15,7 +15,7 @@
 
 #define MAX_LINE_POINTS 64
 
-typedef struct {
+typedef struct LineRenderer {
     GLuint shader_program;
     GLuint vao;
     GLuint vbo;

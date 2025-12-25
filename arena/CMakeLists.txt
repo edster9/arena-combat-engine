@@ -12,6 +12,7 @@ set(CMAKE_C_FLAGS_RELEASE "-O2")
 # Find required packages
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED sdl2)
+pkg_check_modules(ODE REQUIRED ode)
 find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 
@@ -30,6 +31,7 @@ set(SOURCES
     src/game/entity.c
     src/ui/ui_render.c
     src/ui/ui_text.c
+    src/physics/ode_physics.c
 )
 
 # Executable
@@ -39,6 +41,7 @@ add_executable(arena ${SOURCES})
 target_include_directories(arena PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${SDL2_INCLUDE_DIRS}
+    ${ODE_INCLUDE_DIRS}
     ${OPENGL_INCLUDE_DIRS}
     ${GLEW_INCLUDE_DIRS}
 )
@@ -46,6 +49,7 @@ target_include_directories(arena PRIVATE
 # Link libraries
 target_link_libraries(arena
     ${SDL2_LIBRARIES}
+    ${ODE_LIBRARIES}
     ${OPENGL_LIBRARIES}
     GLEW::GLEW
     m

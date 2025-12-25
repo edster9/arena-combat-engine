@@ -2,10 +2,9 @@
  * Arena - Vehicular Combat Game
  * Combined editor and game - pause to plan, play to execute
  *
- * Milestone E3: Arena Walls + Obstacles
- * Milestone E4: Placeholder Cars for Scale Testing
- * Milestone E5: OBJ Loading + Car Rotation
- * Milestone E6: Entity System + Click Selection
+ * Milestone E7: Turn Planning UI + Execute (Teleport)
+ * Milestone E8: Freestyle Physics Mode
+ * Milestone E9: ODE Physics with Suspension
  */
 
 #include "platform/platform.h"
@@ -19,6 +18,7 @@
 #include "render/line_render.h"
 #include "ui/ui_render.h"
 #include "ui/ui_text.h"
+#include "physics/ode_physics.h"
 
 #include <GL/glew.h>
 #include <stdio.h>
@@ -39,7 +39,13 @@
 #define WALL_HEIGHT 4.0f
 #define WALL_THICKNESS 1.0f
 
-// Planning UI state
+// Game modes
+typedef enum {
+    MODE_TURN_BASED = 0,
+    MODE_FREESTYLE = 1
+} GameMode;
+
+// Planning UI state (for turn-based mode)
 typedef enum {
     SPEED_BRAKE = 0,
     SPEED_HOLD = 1,
@@ -51,6 +57,21 @@ typedef struct {
     int selected_phase;      // 0-4, which phase box is selected
     int current_speed;       // Current speed in mph
 } PlanningState;
+
+// Physics state for freestyle mode
+typedef struct {
+    float velocity;          // Current speed in game units/sec
+    float angular_velocity;  // Turning rate in radians/sec
+    float steering;          // Current steering input (-1 to 1)
+} CarPhysics;
+
+// Physics constants
+#define CAR_ACCEL 15.0f          // Acceleration in units/sec^2
+#define CAR_BRAKE 25.0f          // Braking deceleration
+#define CAR_FRICTION 3.0f        // Natural deceleration (drag)
+#define CAR_MAX_SPEED 40.0f      // Max speed in units/sec (~90 mph in game scale)
+#define CAR_TURN_RATE 2.5f       // Max turn rate in radians/sec
+#define CAR_MIN_TURN_SPEED 2.0f  // Minimum speed to turn
 
 // Calculate next speed based on choice
 static int calculate_next_speed(int current_speed, SpeedChoice choice) {
@@ -213,16 +234,7 @@ int main(int argc, char* argv[]) {
     (void)argv;
 
     printf("=== Arena ===\n");
-    printf("Controls:\n");
-    printf("  Left-click: Select vehicle\n");
-    printf("  Right-click + drag: Look around\n");
-    printf("  WASD: Move\n");
-    printf("  E/Space: Move up\n");
-    printf("  Q/Ctrl: Move down\n");
-    printf("  Shift: Move faster\n");
-    printf("  Scroll: Adjust move speed\n");
-    printf("  F11: Toggle fullscreen\n");
-    printf("  ESC: Quit\n\n");
+    printf("Press F1 for controls help\n\n");
 
     // Initialize platform
     Platform platform;
@@ -273,6 +285,32 @@ int main(int argc, char* argv[]) {
     entity_manager_init(&entities);
     create_test_vehicles(&entities, car_scale);
 
+    // Initialize ODE physics
+    PhysicsWorld physics;
+    if (!physics_init(&physics)) {
+        fprintf(stderr, "Failed to initialize physics\n");
+        // Continue anyway, physics just won't work
+    }
+
+    // Set up ground plane
+    physics_set_ground(&physics, 0.0f);
+
+    // Add central obstacle to physics
+    physics_add_box_obstacle(&physics, vec3(0, 2.0f, 0), vec3(5, 4, 5));
+
+    // Create physics vehicles for each entity
+    VehicleConfig vehicle_cfg = physics_default_vehicle_config();
+    int entity_to_physics[MAX_ENTITIES];  // Maps entity id -> physics vehicle id
+    memset(entity_to_physics, -1, sizeof(entity_to_physics));
+
+    for (int i = 0; i < entities.count; i++) {
+        Entity* e = &entities.entities[i];
+        if (e->active && e->type == ENTITY_VEHICLE) {
+            int phys_id = physics_create_vehicle(&physics, e->position, e->rotation_y, &vehicle_cfg);
+            entity_to_physics[e->id] = phys_id;
+        }
+    }
+
     // Initialize UI renderer
     UIRenderer ui_renderer;
     if (!ui_renderer_init(&ui_renderer)) {
@@ -316,6 +354,15 @@ int main(int argc, char* argv[]) {
     // Debug flags
     bool show_cars = true;       // Toggle with 'H' key
     bool debug_ghost = false;    // Toggle with 'G' key for debug output
+    bool show_physics_debug = false;  // Toggle with 'P' key for physics shapes
+    bool show_help = false;      // Toggle with 'F1' key for help overlay
+
+    // Game mode (F to toggle)
+    GameMode game_mode = MODE_TURN_BASED;
+
+    // Physics state for each car (indexed by entity id)
+    CarPhysics car_physics[MAX_ENTITIES];
+    memset(car_physics, 0, sizeof(car_physics));
 
     // Timing
     double last_time = platform_get_time();
@@ -358,6 +405,11 @@ int main(int argc, char* argv[]) {
             platform_toggle_fullscreen(&platform);
         }
 
+        // Help overlay toggle
+        if (input.keys_pressed[KEY_F1]) {
+            show_help = !show_help;
+        }
+
         // Quit on ESC
         if (input.keys_pressed[KEY_ESCAPE]) {
             platform.should_quit = true;
@@ -373,6 +425,18 @@ int main(int argc, char* argv[]) {
         if (input.keys_pressed[KEY_G]) {
             debug_ghost = !debug_ghost;
             printf("Ghost debug %s\n", debug_ghost ? "ON" : "OFF");
+        }
+
+        // Toggle physics debug with P
+        if (input.keys_pressed[KEY_P]) {
+            show_physics_debug = !show_physics_debug;
+            printf("Physics debug %s\n", show_physics_debug ? "ON" : "OFF");
+        }
+
+        // Toggle game mode with F
+        if (input.keys_pressed[KEY_F]) {
+            game_mode = (game_mode == MODE_TURN_BASED) ? MODE_FREESTYLE : MODE_TURN_BASED;
+            printf("Game mode: %s\n", game_mode == MODE_FREESTYLE ? "FREESTYLE" : "TURN-BASED");
         }
 
         // Left click handling (UI buttons first, then 3D picking)
@@ -408,6 +472,35 @@ int main(int argc, char* argv[]) {
                 }
             }
 
+            // Check Execute button click
+            UIRect execute_btn = ui_rect(platform.width - 315, 305, 300, 50);
+            if (point_in_rect(mx, my, execute_btn)) {
+                Entity* selected = entity_manager_get_selected(&entities);
+                if (selected) {
+                    // Calculate end position (same as ghost path)
+                    int next_speed = calculate_next_speed(planning.current_speed, planning.speed_choice);
+                    float move_dist = calculate_move_distance(next_speed);
+                    Vec3 end_pos = calculate_end_position(selected->position, selected->rotation_y, move_dist);
+
+                    // Teleport car to end position
+                    selected->position = end_pos;
+
+                    // Update speed for next turn
+                    planning.current_speed = next_speed;
+
+                    // Reset to HOLD for next turn planning
+                    planning.speed_choice = SPEED_HOLD;
+
+                    printf("Executed turn: %s car moved to (%.1f, %.1f), speed now %d mph\n",
+                           selected->team == TEAM_RED ? "Red" : "Blue",
+                           selected->position.x, selected->position.z,
+                           planning.current_speed);
+                } else {
+                    printf("No vehicle selected - select a car first!\n");
+                }
+                ui_clicked = true;
+            }
+
             // If no UI was clicked, do 3D picking
             if (!ui_clicked) {
                 Vec3 ray_origin, ray_dir;
@@ -434,6 +527,56 @@ int main(int argc, char* argv[]) {
 
         // Update camera
         camera_update(&camera, &input, dt);
+
+        // Freestyle physics update (ODE-based)
+        if (game_mode == MODE_FREESTYLE) {
+            Entity* selected = entity_manager_get_selected(&entities);
+            if (selected && selected->id < MAX_ENTITIES) {
+                int phys_id = entity_to_physics[selected->id];
+                if (phys_id >= 0) {
+                    // Get input (arrow keys for car control)
+                    float throttle = 0.0f;
+                    float brake = 0.0f;
+                    float steer = 0.0f;
+
+                    if (input.keys[KEY_UP]) throttle = 1.0f;
+                    if (input.keys[KEY_DOWN]) brake = 1.0f;
+                    if (input.keys[KEY_LEFT]) steer = -1.0f;
+                    if (input.keys[KEY_RIGHT]) steer = 1.0f;
+
+                    // Apply controls to physics vehicle
+                    physics_vehicle_set_throttle(&physics, phys_id, throttle);
+                    physics_vehicle_set_brake(&physics, phys_id, brake);
+                    physics_vehicle_set_steering(&physics, phys_id, steer);
+                }
+            }
+
+            // Step physics simulation
+            physics_step(&physics, dt);
+
+            // Sync physics state back to entities
+            for (int i = 0; i < entities.count; i++) {
+                Entity* e = &entities.entities[i];
+                if (!e->active || e->type != ENTITY_VEHICLE) continue;
+
+                int phys_id = entity_to_physics[e->id];
+                if (phys_id >= 0) {
+                    Vec3 pos;
+                    float rot_y;
+                    physics_vehicle_get_position(&physics, phys_id, &pos);
+                    physics_vehicle_get_rotation(&physics, phys_id, &rot_y);
+                    e->position = pos;
+                    e->rotation_y = rot_y;
+
+                    // Store velocity for display
+                    float speed_ms;
+                    physics_vehicle_get_velocity(&physics, phys_id, &speed_ms);
+                    if (e->id < MAX_ENTITIES) {
+                        car_physics[e->id].velocity = speed_ms;
+                    }
+                }
+            }
+        }
 
         // Render
         glViewport(0, 0, platform.width, platform.height);
@@ -525,6 +668,13 @@ int main(int argc, char* argv[]) {
 
                 line_renderer_end(&line_renderer);
             }
+
+            // Physics debug visualization (press P to toggle)
+            if (show_physics_debug) {
+                line_renderer_begin(&line_renderer, &view, &projection);
+                physics_debug_draw(&physics, &line_renderer);
+                line_renderer_end(&line_renderer);
+            }
         }
 
         // Draw UI test panels
@@ -579,6 +729,11 @@ int main(int argc, char* argv[]) {
                 box_color, border, border_w, 4.0f);
         }
 
+        // Execute button (below phase boxes)
+        ui_draw_panel(&ui_renderer,
+            ui_rect(platform.width - 315, 305, 300, 50),
+            UI_COLOR_ACCENT, UI_COLOR_WHITE, 2.0f, 4.0f);
+
         // Bottom status bar
         ui_draw_panel(&ui_renderer,
             ui_rect(10, platform.height - 50, platform.width - 340, 40),
@@ -590,8 +745,9 @@ int main(int argc, char* argv[]) {
         if (has_text) {
             text_renderer_begin(&text_renderer, platform.width, platform.height);
 
-            // Header text
-            text_draw_centered(&text_renderer, "TURN PLANNING",
+            // Header text (changes based on mode)
+            const char* header_text = (game_mode == MODE_FREESTYLE) ? "FREESTYLE MODE" : "TURN PLANNING";
+            text_draw_centered(&text_renderer, header_text,
                 ui_rect(platform.width - 315, 15, 300, 40), UI_COLOR_WHITE);
 
             // Speed section label with current speed
@@ -620,24 +776,109 @@ int main(int argc, char* argv[]) {
                 text_draw_centered(&text_renderer, phase_labels[i], box, UI_COLOR_WHITE);
             }
 
+            // Execute button label
+            text_draw_centered(&text_renderer, "EXECUTE TURN",
+                ui_rect(platform.width - 315, 305, 300, 50), UI_COLOR_WHITE);
+
             // Status bar text with dynamic info
             {
-                const char* speed_names[] = {"BRAKE", "HOLD", "ACCEL"};
                 const char* team_name = "None";
                 Entity* sel = entity_manager_get_selected(&entities);
                 if (sel) {
                     team_name = sel->team == TEAM_RED ? "Red" :
                                 sel->team == TEAM_BLUE ? "Blue" : "Other";
                 }
+
                 char status_text[128];
-                snprintf(status_text, sizeof(status_text),
-                    "Vehicle: %s  |  Speed: %d mph  |  Next: %s  |  Phase: P%d",
-                    team_name, planning.current_speed,
-                    speed_names[planning.speed_choice], planning.selected_phase + 1);
+                if (game_mode == MODE_FREESTYLE) {
+                    // Freestyle: show real-time velocity
+                    float vel = 0.0f;
+                    if (sel && sel->id < MAX_ENTITIES) {
+                        vel = car_physics[sel->id].velocity;
+                    }
+                    // Convert to mph-ish (velocity * 2.25 gives nice numbers)
+                    int display_mph = (int)(fabsf(vel) * 2.25f);
+                    snprintf(status_text, sizeof(status_text),
+                        "[F] Mode: FREESTYLE  |  Vehicle: %s  |  Speed: %d mph  |  Arrow keys to drive",
+                        team_name, display_mph);
+                } else {
+                    // Turn-based: show planning info
+                    const char* speed_names[] = {"BRAKE", "HOLD", "ACCEL"};
+                    snprintf(status_text, sizeof(status_text),
+                        "[F] Mode: TURNS  |  Vehicle: %s  |  Speed: %d mph  |  Next: %s  |  Phase: P%d",
+                        team_name, planning.current_speed,
+                        speed_names[planning.speed_choice], planning.selected_phase + 1);
+                }
                 text_draw(&text_renderer, status_text, 20, platform.height - 42, UI_COLOR_WHITE);
             }
 
             text_renderer_end(&text_renderer);
+        }
+
+        // Help overlay (renders on top of everything)
+        if (show_help) {
+            // Semi-transparent background panel - upper left, more transparent
+            float help_w = 320.0f;
+            float help_h = 480.0f;
+            float help_x = 15.0f;
+            float help_y = 15.0f;
+
+            ui_renderer_begin(&ui_renderer, platform.width, platform.height);
+            ui_draw_panel(&ui_renderer,
+                ui_rect(help_x, help_y, help_w, help_h),
+                ui_color(0.05f, 0.05f, 0.1f, 0.7f),
+                ui_color(0.3f, 0.5f, 0.8f, 0.5f), 1.0f, 6.0f);
+            ui_renderer_end(&ui_renderer);
+
+            if (has_text) {
+                text_renderer_begin(&text_renderer, platform.width, platform.height);
+
+                float tx = help_x + 15;
+                float ty = help_y + 12;
+                float line_h = 24.0f;
+
+                text_draw(&text_renderer, "CONTROLS (F1)", tx, ty, UI_COLOR_ACCENT);
+                ty += line_h * 1.3f;
+
+                text_draw(&text_renderer, "CAMERA", tx, ty, UI_COLOR_CAUTION);
+                ty += line_h;
+                text_draw(&text_renderer, "  RMB+drag  Look", tx, ty, UI_COLOR_WHITE);
+                ty += line_h;
+                text_draw(&text_renderer, "  WASD      Move", tx, ty, UI_COLOR_WHITE);
+                ty += line_h;
+                text_draw(&text_renderer, "  E/Space   Up", tx, ty, UI_COLOR_WHITE);
+                ty += line_h;
+                text_draw(&text_renderer, "  Q/Ctrl    Down", tx, ty, UI_COLOR_WHITE);
+                ty += line_h;
+                text_draw(&text_renderer, "  Shift     Fast", tx, ty, UI_COLOR_WHITE);
+                ty += line_h * 1.3f;
+
+                text_draw(&text_renderer, "GAMEPLAY", tx, ty, UI_COLOR_CAUTION);
+                ty += line_h;
+                text_draw(&text_renderer, "  LMB       Select", tx, ty, UI_COLOR_WHITE);
+                ty += line_h;
+                text_draw(&text_renderer, "  Arrows    Drive", tx, ty, UI_COLOR_WHITE);
+                ty += line_h;
+                text_draw(&text_renderer, "  F         Mode", tx, ty, UI_COLOR_WHITE);
+                ty += line_h * 1.3f;
+
+                text_draw(&text_renderer, "DEBUG", tx, ty, UI_COLOR_CAUTION);
+                ty += line_h;
+                text_draw(&text_renderer, "  P         Physics", tx, ty, UI_COLOR_WHITE);
+                ty += line_h;
+                text_draw(&text_renderer, "  H         Hide cars", tx, ty, UI_COLOR_WHITE);
+                ty += line_h;
+                text_draw(&text_renderer, "  G         Ghost", tx, ty, UI_COLOR_WHITE);
+                ty += line_h * 1.3f;
+
+                text_draw(&text_renderer, "SYSTEM", tx, ty, UI_COLOR_CAUTION);
+                ty += line_h;
+                text_draw(&text_renderer, "  F11       Fullscreen", tx, ty, UI_COLOR_WHITE);
+                ty += line_h;
+                text_draw(&text_renderer, "  ESC       Quit", tx, ty, UI_COLOR_WHITE);
+
+                text_renderer_end(&text_renderer);
+            }
         }
 
         // Swap buffers
@@ -645,6 +886,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Cleanup
+    physics_destroy(&physics);
     if (has_lines) line_renderer_destroy(&line_renderer);
     if (has_text) text_renderer_destroy(&text_renderer);
     ui_renderer_destroy(&ui_renderer);

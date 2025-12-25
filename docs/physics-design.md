@@ -211,11 +211,33 @@ TURN EXECUTION FLOW:
 
 ---
 
+## Future Game Mode Ideas
+
+### Freestyle Test Drive Mode
+Beyond physics tuning, freestyle driving could become an actual game mode:
+
+1. **Car Builder Test Track**
+   - After building a custom car, test it in real-time
+   - WASD controls, fire weapons, make jumps
+   - Solo mode to learn your car's handling before arena combat
+
+2. **Quick Play Mode**
+   - Faster turn-based variant (shorter planning time)
+   - Or hybrid: plan maneuver, watch physics execute in real-time
+   - Good for solo practice or quick matches
+
+3. **Stunt Mode**
+   - Score points for jumps, spins, near-misses
+   - Test track with ramps and obstacles
+   - Leaderboards for best stunts
+
+---
+
 ## Next Steps
 
 1. [x] Document physics design (this file)
-2. [ ] Implement teleport execution (simple)
-3. [ ] Add "Execute Turn" button to UI
+2. [x] Implement teleport execution (simple)
+3. [x] Add "Execute Turn" button to UI
 4. [ ] Build freestyle physics testbed
 5. [ ] Implement basic car physics (velocity, friction)
 6. [ ] Add force application system
