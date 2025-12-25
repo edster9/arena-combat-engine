@@ -76,6 +76,10 @@ typedef struct {
     float throttle;          // Current throttle (0 to 1)
     float brake;             // Current brake (0 to 1)
 
+    // Spawn state (for respawn)
+    Vec3 spawn_position;
+    float spawn_rotation;
+
     // Config
     VehicleConfig config;
 } PhysicsVehicle;
@@ -111,10 +115,12 @@ void physics_destroy_vehicle(PhysicsWorld* pw, int vehicle_id);
 void physics_vehicle_set_steering(PhysicsWorld* pw, int vehicle_id, float steering);  // -1 to 1
 void physics_vehicle_set_throttle(PhysicsWorld* pw, int vehicle_id, float throttle);  // 0 to 1
 void physics_vehicle_set_brake(PhysicsWorld* pw, int vehicle_id, float brake);        // 0 to 1
+void physics_vehicle_respawn(PhysicsWorld* pw, int vehicle_id);  // Reset to spawn position
 
 // Get vehicle state (for rendering)
 void physics_vehicle_get_position(PhysicsWorld* pw, int vehicle_id, Vec3* pos);
 void physics_vehicle_get_rotation(PhysicsWorld* pw, int vehicle_id, float* rotation_y);
+void physics_vehicle_get_rotation_matrix(PhysicsWorld* pw, int vehicle_id, float* rot_matrix);  // 9 floats (3x3 row-major)
 void physics_vehicle_get_velocity(PhysicsWorld* pw, int vehicle_id, float* speed_ms);
 void physics_vehicle_get_wheel_states(PhysicsWorld* pw, int vehicle_id, WheelState* wheels);
 

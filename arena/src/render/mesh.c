@@ -169,6 +169,77 @@ void box_renderer_draw(BoxRenderer* r, Vec3 pos, Vec3 size, Vec3 color) {
     glDrawArrays(GL_TRIANGLES, 0, r->unit_box.vertex_count);
 }
 
+void box_renderer_draw_rotated(BoxRenderer* r, Vec3 pos, Vec3 size, float rotation_y, Vec3 color) {
+    // Build model matrix: translate * rotate * scale
+    float c = cosf(rotation_y);
+    float s = sinf(rotation_y);
+
+    Mat4 model = mat4_identity();
+
+    // Combined transform (scale, rotate Y, translate) in column-major order
+    // This is: T * Ry * S where operations apply right-to-left
+    model.m[0] = c * size.x;
+    model.m[1] = 0;
+    model.m[2] = -s * size.x;
+    model.m[3] = 0;
+
+    model.m[4] = 0;
+    model.m[5] = size.y;
+    model.m[6] = 0;
+    model.m[7] = 0;
+
+    model.m[8] = s * size.z;
+    model.m[9] = 0;
+    model.m[10] = c * size.z;
+    model.m[11] = 0;
+
+    model.m[12] = pos.x;
+    model.m[13] = pos.y;
+    model.m[14] = pos.z;
+    model.m[15] = 1;
+
+    shader_set_mat4(&r->shader, "model", &model);
+    shader_set_vec3(&r->shader, "objectColor", color);
+
+    glDrawArrays(GL_TRIANGLES, 0, r->unit_box.vertex_count);
+}
+
+void box_renderer_draw_rotated_matrix(BoxRenderer* r, Vec3 pos, Vec3 size, const float* rot_matrix, Vec3 color) {
+    // Build model matrix: translate * rotate * scale
+    // rot_matrix is 3x3 row-major, OpenGL needs 4x4 column-major
+    // Combined: model = T * R * S
+    Mat4 model = mat4_identity();
+
+    // Column 0: R * scale_x (first column of rotation * size.x)
+    model.m[0] = rot_matrix[0] * size.x;
+    model.m[1] = rot_matrix[3] * size.x;
+    model.m[2] = rot_matrix[6] * size.x;
+    model.m[3] = 0;
+
+    // Column 1: R * scale_y (second column of rotation * size.y)
+    model.m[4] = rot_matrix[1] * size.y;
+    model.m[5] = rot_matrix[4] * size.y;
+    model.m[6] = rot_matrix[7] * size.y;
+    model.m[7] = 0;
+
+    // Column 2: R * scale_z (third column of rotation * size.z)
+    model.m[8] = rot_matrix[2] * size.z;
+    model.m[9] = rot_matrix[5] * size.z;
+    model.m[10] = rot_matrix[8] * size.z;
+    model.m[11] = 0;
+
+    // Column 3: translation
+    model.m[12] = pos.x;
+    model.m[13] = pos.y;
+    model.m[14] = pos.z;
+    model.m[15] = 1;
+
+    shader_set_mat4(&r->shader, "model", &model);
+    shader_set_vec3(&r->shader, "objectColor", color);
+
+    glDrawArrays(GL_TRIANGLES, 0, r->unit_box.vertex_count);
+}
+
 void box_renderer_draw_mesh(BoxRenderer* r, GLuint vao, int vertex_count,
                             Vec3 pos, float scale, float rotation_y, Vec3 color) {
     // Build model matrix: translate * rotate * scale

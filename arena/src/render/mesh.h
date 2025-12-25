@@ -31,6 +31,12 @@ void box_renderer_begin(BoxRenderer* r, Mat4* view, Mat4* projection, Vec3 light
 // Draw a box with position, size, and color
 void box_renderer_draw(BoxRenderer* r, Vec3 pos, Vec3 size, Vec3 color);
 
+// Draw a box with position, size, rotation (Y axis), and color
+void box_renderer_draw_rotated(BoxRenderer* r, Vec3 pos, Vec3 size, float rotation_y, Vec3 color);
+
+// Draw a box with position, size, full 3x3 rotation matrix (row-major), and color
+void box_renderer_draw_rotated_matrix(BoxRenderer* r, Vec3 pos, Vec3 size, const float* rot_matrix, Vec3 color);
+
 // Draw a loaded mesh (VAO) with position, scale, rotation and color
 // rotation_y is in radians
 void box_renderer_draw_mesh(BoxRenderer* r, GLuint vao, int vertex_count,

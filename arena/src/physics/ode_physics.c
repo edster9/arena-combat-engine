@@ -12,11 +12,11 @@
 
 // Contact parameters
 #define MAX_CONTACTS 10
-#define CONTACT_SURFACE_MU 1.5f       // Friction coefficient
-#define CONTACT_SURFACE_SLIP1 0.001f  // Slip parameters
-#define CONTACT_SURFACE_SLIP2 0.001f
-#define CONTACT_SOFT_ERP 0.5f
-#define CONTACT_SOFT_CFM 0.001f
+#define CONTACT_SURFACE_MU 3.0f       // High friction for good traction
+#define CONTACT_SURFACE_SLIP1 0.0001f // Minimal slip
+#define CONTACT_SURFACE_SLIP2 0.0001f
+#define CONTACT_SOFT_ERP 0.8f         // Stiffer contacts
+#define CONTACT_SOFT_CFM 0.0001f
 
 // Static world pointer for collision callback
 static PhysicsWorld* g_current_world = NULL;
@@ -131,7 +131,7 @@ void physics_step(PhysicsWorld* pw, float dt) {
 
             if (v->throttle > 0.01f) {
                 // Accelerate (negative because of wheel axis direction)
-                motor_speed = -v->throttle * 30.0f;  // Target angular velocity
+                motor_speed = -v->throttle * 80.0f;  // Target angular velocity (higher = faster top speed)
                 motor_force = v->config.max_motor_force;
             } else if (v->brake > 0.01f) {
                 // Brake - apply force to stop wheels
@@ -206,10 +206,15 @@ int physics_create_vehicle(PhysicsWorld* pw, Vec3 position, float rotation_y,
     v->active = true;
     v->config = *config;
 
+    // Store spawn position for respawn
+    v->spawn_position = position;
+    v->spawn_rotation = rotation_y;
+
     // Create chassis body
-    // Position chassis so wheels touch ground (chassis center above wheel centers)
+    // Position chassis so wheels touch ground
+    // Wheel center at wheel_radius above ground, chassis center is half-height above wheel center
     v->chassis = dBodyCreate(pw->world);
-    float chassis_y = position.y + config->wheel_radius + config->chassis_height * 0.4f;
+    float chassis_y = position.y + config->wheel_radius + config->chassis_height * 0.5f;
     dBodySetPosition(v->chassis, position.x, chassis_y, position.z);
 
     // Set chassis rotation
@@ -311,6 +316,15 @@ int physics_create_vehicle(PhysicsWorld* pw, Vec3 position, float rotation_y,
         }
     }
 
+    // Initialize wheel states for rendering (so they're valid before physics_step)
+    for (int w = 0; w < 4; w++) {
+        const dReal* wpos = dBodyGetPosition(v->wheels[w]);
+        v->wheel_states[w].position = vec3((float)wpos[0], (float)wpos[1], (float)wpos[2]);
+        v->wheel_states[w].rotation = 0;
+        v->wheel_states[w].steer_angle = 0;
+        v->wheel_states[w].suspension_compression = 0;
+    }
+
     printf("Created physics vehicle %d at (%.1f, %.1f, %.1f)\n",
            id, position.x, position.y, position.z);
     return id;
@@ -369,6 +383,59 @@ void physics_vehicle_set_brake(PhysicsWorld* pw, int vehicle_id, float brake) {
     if (v->brake < 0.0f) v->brake = 0.0f;
 }
 
+void physics_vehicle_respawn(PhysicsWorld* pw, int vehicle_id) {
+    if (vehicle_id < 0 || vehicle_id >= pw->vehicle_count) return;
+    PhysicsVehicle* v = &pw->vehicles[vehicle_id];
+    if (!v->active) return;
+
+    VehicleConfig* config = &v->config;
+    Vec3 pos = v->spawn_position;
+    float rotation_y = v->spawn_rotation;
+
+    // Calculate chassis Y position
+    float chassis_y = pos.y + config->wheel_radius + config->chassis_height * 0.5f;
+
+    // Reset chassis position, rotation, and velocities
+    dBodySetPosition(v->chassis, pos.x, chassis_y, pos.z);
+    dMatrix3 R;
+    dRFromAxisAndAngle(R, 0, 1, 0, rotation_y);
+    dBodySetRotation(v->chassis, R);
+    dBodySetLinearVel(v->chassis, 0, 0, 0);
+    dBodySetAngularVel(v->chassis, 0, 0, 0);
+
+    // Reset wheels
+    float wz = config->chassis_length * 0.35f;
+    float wx = config->chassis_width * 0.5f + config->wheel_width * 0.6f;
+    float wy = -config->chassis_height * 0.5f;
+
+    Vec3 wheel_offsets[4] = {
+        {-wx, wy,  wz},  // Front Left
+        { wx, wy,  wz},  // Front Right
+        {-wx, wy, -wz},  // Rear Left
+        { wx, wy, -wz},  // Rear Right
+    };
+
+    for (int w = 0; w < 4; w++) {
+        float wx_rotated = wheel_offsets[w].x * cosf(rotation_y) - wheel_offsets[w].z * sinf(rotation_y);
+        float wz_rotated = wheel_offsets[w].x * sinf(rotation_y) + wheel_offsets[w].z * cosf(rotation_y);
+
+        float wheel_x = pos.x + wx_rotated;
+        float wheel_y = chassis_y + wheel_offsets[w].y;
+        float wheel_z = pos.z + wz_rotated;
+
+        dBodySetPosition(v->wheels[w], wheel_x, wheel_y, wheel_z);
+        dBodySetLinearVel(v->wheels[w], 0, 0, 0);
+        dBodySetAngularVel(v->wheels[w], 0, 0, 0);
+    }
+
+    // Clear inputs
+    v->steering = 0;
+    v->throttle = 0;
+    v->brake = 0;
+
+    printf("Respawned vehicle %d at (%.1f, %.1f, %.1f)\n", vehicle_id, pos.x, pos.y, pos.z);
+}
+
 void physics_vehicle_get_position(PhysicsWorld* pw, int vehicle_id, Vec3* pos) {
     if (vehicle_id < 0 || vehicle_id >= pw->vehicle_count) return;
     PhysicsVehicle* v = &pw->vehicles[vehicle_id];
@@ -391,6 +458,27 @@ void physics_vehicle_get_rotation(PhysicsWorld* pw, int vehicle_id, float* rotat
     *rotation_y = atan2f((float)R[2], (float)R[0]);
 }
 
+void physics_vehicle_get_rotation_matrix(PhysicsWorld* pw, int vehicle_id, float* rot_matrix) {
+    if (vehicle_id < 0 || vehicle_id >= pw->vehicle_count) return;
+    PhysicsVehicle* v = &pw->vehicles[vehicle_id];
+    if (!v->active) return;
+
+    const dReal* R = dBodyGetRotation(v->chassis);
+    // ODE stores 3x4 row-major (with padding), extract 3x3 row-major
+    // Row 0
+    rot_matrix[0] = (float)R[0];
+    rot_matrix[1] = (float)R[1];
+    rot_matrix[2] = (float)R[2];
+    // Row 1
+    rot_matrix[3] = (float)R[4];
+    rot_matrix[4] = (float)R[5];
+    rot_matrix[5] = (float)R[6];
+    // Row 2
+    rot_matrix[6] = (float)R[8];
+    rot_matrix[7] = (float)R[9];
+    rot_matrix[8] = (float)R[10];
+}
+
 void physics_vehicle_get_velocity(PhysicsWorld* pw, int vehicle_id, float* speed_ms) {
     if (vehicle_id < 0 || vehicle_id >= pw->vehicle_count) return;
     PhysicsVehicle* v = &pw->vehicles[vehicle_id];
@@ -411,22 +499,22 @@ void physics_vehicle_get_wheel_states(PhysicsWorld* pw, int vehicle_id, WheelSta
 
 VehicleConfig physics_default_vehicle_config(void) {
     VehicleConfig cfg = {
-        .chassis_mass = 1200.0f,     // 1200 kg
-        .chassis_length = 4.5f,      // 4.5 meters
-        .chassis_width = 2.0f,       // 2 meters
-        .chassis_height = 1.2f,      // 1.2 meters
+        .chassis_mass = 600.0f,      // 600 kg (lighter = more responsive)
+        .chassis_length = 3.5f,      // 3.5 meters (smaller car)
+        .chassis_width = 1.8f,       // 1.8 meters
+        .chassis_height = 0.8f,      // 0.8 meters (lower center of gravity)
 
-        .wheel_mass = 20.0f,         // 20 kg per wheel
-        .wheel_radius = 0.4f,        // 0.4 meter radius
-        .wheel_width = 0.25f,        // 0.25 meter wide
+        .wheel_mass = 15.0f,         // 15 kg per wheel
+        .wheel_radius = 0.35f,       // 0.35 meter radius
+        .wheel_width = 0.2f,         // 0.2 meter wide
 
-        .suspension_erp = 0.4f,      // Moderate stiffness
-        .suspension_cfm = 0.02f,     // Some softness
-        .suspension_travel = 0.3f,   // 30cm travel
+        .suspension_erp = 0.7f,      // Stiffer suspension
+        .suspension_cfm = 0.005f,    // Less soft
+        .suspension_travel = 0.2f,   // 20cm travel
 
-        .max_steer_angle = 0.5f,     // ~30 degrees
-        .max_motor_force = 5000.0f,  // 5000 N
-        .max_brake_force = 8000.0f,  // 8000 N
+        .max_steer_angle = 0.7f,     // ~40 degrees (sharper turns)
+        .max_motor_force = 20000.0f, // 20000 N (powerful motor)
+        .max_brake_force = 15000.0f, // 15000 N
     };
     return cfg;
 }

@@ -39,6 +39,9 @@
 #define WALL_HEIGHT 4.0f
 #define WALL_THICKNESS 1.0f
 
+// Car dimensions (for model scaling and ghost preview)
+#define CAR_LENGTH 3.5f
+
 // Game modes
 typedef enum {
     MODE_TURN_BASED = 0,
@@ -135,45 +138,6 @@ static void draw_arena_walls(BoxRenderer* r) {
         wall_color);
 }
 
-// Car dimensions for scale testing (in game units)
-// Using approx 1 unit = 1 meter scale
-#define CAR_LENGTH 4.5f   // ~15 feet
-#define CAR_WIDTH 2.0f    // ~6.5 feet
-#define CAR_HEIGHT 1.4f   // ~4.5 feet (body only, not including roof)
-#define CAR_ROOF_HEIGHT 0.5f
-
-// Draw a placeholder box-car with body and cabin
-static void draw_placeholder_car(BoxRenderer* r, Vec3 pos, float rotation_y, Vec3 body_color) {
-    (void)rotation_y;  // TODO: implement rotation
-
-    // Car body (lower part)
-    Vec3 body_pos = vec3(pos.x, pos.y + CAR_HEIGHT/2, pos.z);
-    box_renderer_draw(r, body_pos, vec3(CAR_LENGTH, CAR_HEIGHT, CAR_WIDTH), body_color);
-
-    // Cabin/roof (upper part, smaller)
-    Vec3 cabin_pos = vec3(pos.x - 0.3f, pos.y + CAR_HEIGHT + CAR_ROOF_HEIGHT/2, pos.z);
-    Vec3 cabin_color = vec3(0.2f, 0.2f, 0.25f);  // Dark glass color
-    box_renderer_draw(r, cabin_pos, vec3(CAR_LENGTH * 0.5f, CAR_ROOF_HEIGHT, CAR_WIDTH * 0.9f), cabin_color);
-
-    // Wheels (4 corners) - small dark boxes for now
-    Vec3 wheel_color = vec3(0.15f, 0.15f, 0.15f);
-    float wheel_radius = 0.4f;
-    float wheel_width = 0.3f;
-    float wx = CAR_LENGTH/2 - 0.7f;  // Wheel X offset from center
-    float wz = CAR_WIDTH/2 + wheel_width/2;  // Wheel Z offset
-
-    // Front wheels
-    box_renderer_draw(r, vec3(pos.x + wx, wheel_radius, pos.z + wz),
-                      vec3(wheel_radius*2, wheel_radius*2, wheel_width), wheel_color);
-    box_renderer_draw(r, vec3(pos.x + wx, wheel_radius, pos.z - wz),
-                      vec3(wheel_radius*2, wheel_radius*2, wheel_width), wheel_color);
-    // Rear wheels
-    box_renderer_draw(r, vec3(pos.x - wx, wheel_radius, pos.z + wz),
-                      vec3(wheel_radius*2, wheel_radius*2, wheel_width), wheel_color);
-    box_renderer_draw(r, vec3(pos.x - wx, wheel_radius, pos.z - wz),
-                      vec3(wheel_radius*2, wheel_radius*2, wheel_width), wheel_color);
-}
-
 // Draw obstacle blocks in the arena (simplified for showdown)
 static void draw_obstacles(BoxRenderer* r) {
     Vec3 pillar_color = vec3(0.4f, 0.4f, 0.45f);   // Dark concrete
@@ -190,22 +154,57 @@ static void draw_obstacles(BoxRenderer* r) {
     box_renderer_draw(r, vec3(-corner_offset, 2.0f, -corner_offset), vec3(3, 4, 3), pillar_color);
 }
 
-// Draw all vehicle entities
-static void draw_entities(BoxRenderer* r, EntityManager* em, LoadedMesh* car_mesh) {
-    for (int i = 0; i < em->count; i++) {
-        Entity* e = &em->entities[i];
-        if (!e->active || e->type != ENTITY_VEHICLE) continue;
+// Draw physics vehicles as solid primitives (box chassis + box wheels)
+// This is the physics-first approach: render what ODE simulates
+static void draw_physics_vehicles(BoxRenderer* r, PhysicsWorld* pw, int selected_id) {
+    Vec3 chassis_color = vec3(0.8f, 0.2f, 0.2f);     // Red chassis
+    Vec3 chassis_selected = vec3(1.0f, 0.4f, 0.4f);  // Brighter when selected
+    Vec3 wheel_color = vec3(0.15f, 0.15f, 0.15f);    // Dark grey wheels
+    Vec3 front_color = vec3(0.9f, 0.9f, 0.2f);       // Yellow front indicator
 
-        // Use highlight color if selected, otherwise normal team color
-        Vec3 color = e->selected ? team_get_highlight_color(e->team)
-                                 : team_get_color(e->team);
+    for (int i = 0; i < pw->vehicle_count; i++) {
+        if (!pw->vehicles[i].active) continue;
 
-        if (car_mesh->valid) {
-            box_renderer_draw_mesh(r, car_mesh->vao, car_mesh->vertex_count,
-                                   e->position, e->scale, e->rotation_y, color);
-        } else {
-            // Fallback to placeholder
-            draw_placeholder_car(r, e->position, e->rotation_y, color);
+        Vec3 color = (i == selected_id) ? chassis_selected : chassis_color;
+
+        // Get chassis position and full rotation from physics
+        Vec3 pos;
+        float rot_matrix[9];  // 3x3 row-major rotation matrix
+        physics_vehicle_get_position(pw, i, &pos);
+        physics_vehicle_get_rotation_matrix(pw, i, rot_matrix);
+
+        // Get vehicle config for dimensions
+        VehicleConfig* cfg = &pw->vehicles[i].config;
+
+        // Draw chassis as a solid box with full 3D rotation
+        Vec3 chassis_size = vec3(cfg->chassis_width, cfg->chassis_height, cfg->chassis_length);
+        box_renderer_draw_rotated_matrix(r, pos, chassis_size, rot_matrix, color);
+
+        // Draw front indicator (yellow bar at front of car)
+        // Front is +Z in local space, transform by rotation matrix
+        float front_offset = cfg->chassis_length * 0.35f;
+        float indicator_height = 0.3f;
+        // Local forward is (0, 0, 1), transform by rotation: R * (0, chassis_height/2 + indicator_height/2, front_offset)
+        float local_y = cfg->chassis_height * 0.5f + indicator_height * 0.5f;
+        Vec3 front_pos = vec3(
+            pos.x + rot_matrix[2] * front_offset + rot_matrix[1] * local_y,
+            pos.y + rot_matrix[5] * front_offset + rot_matrix[4] * local_y,
+            pos.z + rot_matrix[8] * front_offset + rot_matrix[7] * local_y
+        );
+        Vec3 front_size = vec3(cfg->chassis_width * 0.7f, indicator_height, 0.4f);
+        box_renderer_draw_rotated_matrix(r, front_pos, front_size, rot_matrix, front_color);
+
+        // Get wheel states for positions
+        WheelState wheels[4];
+        physics_vehicle_get_wheel_states(pw, i, wheels);
+
+        // Draw wheels as small boxes with chassis rotation (temporary - should be cylinders)
+        for (int w = 0; w < 4; w++) {
+            // Wheel box - wider than tall to look like a wheel from above
+            Vec3 wheel_size = vec3(cfg->wheel_width,
+                                   cfg->wheel_radius * 2.0f,
+                                   cfg->wheel_radius * 2.0f);
+            box_renderer_draw_rotated_matrix(r, wheels[w].position, wheel_size, rot_matrix, wheel_color);
         }
     }
 }
@@ -357,6 +356,12 @@ int main(int argc, char* argv[]) {
     bool show_physics_debug = false;  // Toggle with 'P' key for physics shapes
     bool show_help = false;      // Toggle with 'F1' key for help overlay
 
+    // Chase camera mode (C to toggle) - spherical orbit around car
+    bool chase_camera = false;
+    float chase_distance = 20.0f;       // Distance from car (radius of orbit sphere)
+    float chase_azimuth = 0.0f;         // Horizontal orbit angle (radians)
+    float chase_elevation = 0.5f;       // Vertical orbit angle (radians, 0=level, PI/2=overhead)
+
     // Game mode (F to toggle)
     GameMode game_mode = MODE_TURN_BASED;
 
@@ -433,10 +438,39 @@ int main(int argc, char* argv[]) {
             printf("Physics debug %s\n", show_physics_debug ? "ON" : "OFF");
         }
 
-        // Toggle game mode with F
+        // Toggle chase camera with C (requires selected vehicle)
+        if (input.keys_pressed[KEY_C]) {
+            Entity* sel = entity_manager_get_selected(&entities);
+            if (sel && sel->id < MAX_ENTITIES && entity_to_physics[sel->id] >= 0) {
+                chase_camera = !chase_camera;
+                printf("Chase camera %s\n", chase_camera ? "ON" : "OFF");
+            } else {
+                printf("Select a vehicle first (C)\n");
+            }
+        }
+
+        // Respawn selected vehicle with R (requires selected vehicle)
+        if (input.keys_pressed[KEY_R]) {
+            Entity* sel = entity_manager_get_selected(&entities);
+            if (sel && sel->id < MAX_ENTITIES) {
+                int phys_id = entity_to_physics[sel->id];
+                if (phys_id >= 0) {
+                    physics_vehicle_respawn(&physics, phys_id);
+                }
+            } else {
+                printf("Select a vehicle first (R)\n");
+            }
+        }
+
+        // Toggle game mode with F (requires selected vehicle)
         if (input.keys_pressed[KEY_F]) {
-            game_mode = (game_mode == MODE_TURN_BASED) ? MODE_FREESTYLE : MODE_TURN_BASED;
-            printf("Game mode: %s\n", game_mode == MODE_FREESTYLE ? "FREESTYLE" : "TURN-BASED");
+            Entity* sel = entity_manager_get_selected(&entities);
+            if (sel && sel->id < MAX_ENTITIES && entity_to_physics[sel->id] >= 0) {
+                game_mode = (game_mode == MODE_TURN_BASED) ? MODE_FREESTYLE : MODE_TURN_BASED;
+                printf("Game mode: %s\n", game_mode == MODE_FREESTYLE ? "FREESTYLE" : "TURN-BASED");
+            } else {
+                printf("Select a vehicle first (F)\n");
+            }
         }
 
         // Left click handling (UI buttons first, then 3D picking)
@@ -526,7 +560,10 @@ int main(int argc, char* argv[]) {
         }
 
         // Update camera
-        camera_update(&camera, &input, dt);
+        if (!chase_camera) {
+            // Normal free camera mode
+            camera_update(&camera, &input, dt);
+        }
 
         // Freestyle physics update (ODE-based)
         if (game_mode == MODE_FREESTYLE) {
@@ -578,6 +615,51 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        // Chase camera: spherical orbit around selected vehicle
+        if (chase_camera) {
+            Entity* sel = entity_manager_get_selected(&entities);
+            if (sel && sel->id < MAX_ENTITIES) {
+                int phys_id = entity_to_physics[sel->id];
+                if (phys_id >= 0) {
+                    // RMB drag controls spherical orbit (azimuth and elevation)
+                    if (input.mouse_captured && (input.mouse_dx != 0 || input.mouse_dy != 0)) {
+                        float sensitivity = 0.005f;
+                        chase_azimuth -= input.mouse_dx * sensitivity;
+                        chase_elevation -= input.mouse_dy * sensitivity;
+                        // Clamp elevation: 10-70 degrees (0.175 to 1.22 radians)
+                        if (chase_elevation < 0.175f) chase_elevation = 0.175f;
+                        if (chase_elevation > 1.22f) chase_elevation = 1.22f;
+                        printf("Orbit: az=%.2f el=%.2f dx=%d dy=%d\n",
+                               chase_azimuth, chase_elevation, input.mouse_dx, input.mouse_dy);
+                    }
+
+                    // Get car position directly (no smoothing needed with orbit control)
+                    Vec3 car_pos;
+                    physics_vehicle_get_position(&physics, phys_id, &car_pos);
+
+                    // Spherical coordinates: camera orbits on a sphere around the car
+                    // elevation=0 is level, elevation=PI/2 is directly overhead
+                    float cos_elev = cosf(chase_elevation);
+                    float sin_elev = sinf(chase_elevation);
+                    camera.position.x = car_pos.x + cos_elev * sinf(chase_azimuth) * chase_distance;
+                    camera.position.y = car_pos.y + sin_elev * chase_distance;
+                    camera.position.z = car_pos.z + cos_elev * cosf(chase_azimuth) * chase_distance;
+
+                    // Look at car - compute yaw/pitch to point at target
+                    // camera_forward: x = sin(yaw)*cos(pitch), z = -cos(yaw)*cos(pitch)
+                    // So for direction (dx, dy, dz): yaw = atan2(dx, -dz), pitch = atan2(dy, horiz)
+                    Vec3 to_target = vec3_sub(car_pos, camera.position);
+                    camera.yaw = atan2f(to_target.x, -to_target.z);
+                    float horiz_dist = sqrtf(to_target.x * to_target.x + to_target.z * to_target.z);
+                    camera.pitch = atan2f(to_target.y, horiz_dist);
+                }
+            } else {
+                // No vehicle selected, disable chase camera
+                chase_camera = false;
+                printf("Chase camera OFF (no vehicle selected)\n");
+            }
+        }
+
         // Render
         glViewport(0, 0, platform.width, platform.height);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -595,7 +677,12 @@ int main(int argc, char* argv[]) {
         draw_arena_walls(&box_renderer);
         draw_obstacles(&box_renderer);
         if (show_cars) {
-            draw_entities(&box_renderer, &entities, &car_mesh);
+            // Get selected physics vehicle id for highlighting
+            Entity* sel = entity_manager_get_selected(&entities);
+            int selected_phys_id = (sel && sel->id < MAX_ENTITIES) ? entity_to_physics[sel->id] : -1;
+
+            // Render physics vehicles as solid primitives (physics-first approach)
+            draw_physics_vehicles(&box_renderer, &physics, selected_phys_id);
         }
         box_renderer_end(&box_renderer);
 
@@ -819,7 +906,7 @@ int main(int argc, char* argv[]) {
         if (show_help) {
             // Semi-transparent background panel - upper left, more transparent
             float help_w = 320.0f;
-            float help_h = 480.0f;
+            float help_h = 560.0f;
             float help_x = 15.0f;
             float help_y = 15.0f;
 
@@ -851,6 +938,10 @@ int main(int argc, char* argv[]) {
                 text_draw(&text_renderer, "  Q/Ctrl    Down", tx, ty, UI_COLOR_WHITE);
                 ty += line_h;
                 text_draw(&text_renderer, "  Shift     Fast", tx, ty, UI_COLOR_WHITE);
+                ty += line_h;
+                text_draw(&text_renderer, "  C         Chase cam", tx, ty, UI_COLOR_WHITE);
+                ty += line_h;
+                text_draw(&text_renderer, "  RMB+drag  Orbit (chase)", tx, ty, UI_COLOR_WHITE);
                 ty += line_h * 1.3f;
 
                 text_draw(&text_renderer, "GAMEPLAY", tx, ty, UI_COLOR_CAUTION);
@@ -858,6 +949,8 @@ int main(int argc, char* argv[]) {
                 text_draw(&text_renderer, "  LMB       Select", tx, ty, UI_COLOR_WHITE);
                 ty += line_h;
                 text_draw(&text_renderer, "  Arrows    Drive", tx, ty, UI_COLOR_WHITE);
+                ty += line_h;
+                text_draw(&text_renderer, "  R         Respawn", tx, ty, UI_COLOR_WHITE);
                 ty += line_h;
                 text_draw(&text_renderer, "  F         Mode", tx, ty, UI_COLOR_WHITE);
                 ty += line_h * 1.3f;
