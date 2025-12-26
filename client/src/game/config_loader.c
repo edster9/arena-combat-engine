@@ -8,10 +8,22 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#include <direct.h>
+#define getcwd _getcwd
+#else
+#include <unistd.h>
+#endif
+
 // Read entire file into memory
 static char* read_file(const char* filepath) {
     FILE* f = fopen(filepath, "rb");
     if (!f) {
+        // Print current working directory for debugging
+        char cwd[1024];
+        if (getcwd(cwd, sizeof(cwd)) != NULL) {
+            fprintf(stderr, "CWD: %s\n", cwd);
+        }
         fprintf(stderr, "Failed to open: %s\n", filepath);
         return NULL;
     }
@@ -247,7 +259,8 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
 
     char* json_str = read_file(filepath);
     if (!json_str) {
-        printf("Using default vehicle config\n");
+        fprintf(stderr, "ERROR: Vehicle config required but not found: %s\n", filepath);
+        fprintf(stderr, "       Game will use defaults but physics may be wrong!\n");
         return false;
     }
 
@@ -465,7 +478,8 @@ bool config_load_scene(const char* filepath, SceneJSON* out) {
 
     char* json_str = read_file(filepath);
     if (!json_str) {
-        printf("Using default scene config\n");
+        fprintf(stderr, "ERROR: Scene config required but not found: %s\n", filepath);
+        fprintf(stderr, "       Game will use defaults but layout may be wrong!\n");
         return false;
     }
 

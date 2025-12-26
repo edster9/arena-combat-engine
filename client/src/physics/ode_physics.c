@@ -421,6 +421,9 @@ int physics_create_vehicle(PhysicsWorld* pw, Vec3 position, float rotation_y,
         dJointSetHinge2Param(v->suspensions[w], dParamSuspensionERP, susp_erp);
         dJointSetHinge2Param(v->suspensions[w], dParamSuspensionCFM, susp_cfm);
 
+        printf("  Wheel %d: pos=(%.2f,%.2f,%.2f) erp=%.4f cfm=%.6f radius=%.2f\n",
+               w, wheel_x, wheel_y, wheel_z, susp_erp, susp_cfm, wheel_radii[w]);
+
         // Steering limits - use per-wheel config or legacy
         if (config->use_per_wheel_config) {
             if (config->wheel_steering[w]) {

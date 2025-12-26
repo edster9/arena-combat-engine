@@ -264,12 +264,21 @@ static void create_vehicles_from_scene(EntityManager* em, SceneJSON* scene, floa
     printf("Created %d vehicles from scene config\n", em->count);
 }
 
+// Global verbose flag for debug output
+static bool g_verbose = false;
+
 int main(int argc, char* argv[]) {
-    (void)argc;
-    (void)argv;
+    // Parse command line arguments
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--verbose") == 0 || strcmp(argv[i], "-v") == 0) {
+            g_verbose = true;
+        }
+    }
 
     printf("=== Arena ===\n");
-    printf("Press F1 for controls help\n\n");
+    printf("Press F1 for controls help\n");
+    if (g_verbose) printf("Verbose mode enabled\n");
+    printf("\n");
 
     // Initialize platform
     Platform platform;
@@ -278,9 +287,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Initialize camera
+    // Initialize camera - position to see both cars from an angle
     FlyCamera camera;
     camera_init(&camera);
+    camera.position = vec3(50, 25, 0);  // Side view, elevated
+    camera.yaw = -1.57f;                // Look toward center (-90 degrees)
+    camera.pitch = -0.4f;               // Look slightly down
 
     // Initialize floor (200 units total, 1 unit grid = Car Wars scale)
     Floor arena_floor;
@@ -315,11 +327,22 @@ int main(int argc, char* argv[]) {
         printf("Warning: Could not load car model, using placeholders\n");
     }
 
-    // Load JSON configs
+    // Load JSON configs - these are required for correct physics
     SceneJSON scene_config;
     VehicleJSON vehicle_config;
-    config_load_scene("../../assets/config/scenes/showdown.json", &scene_config);
-    config_load_vehicle("../../assets/config/vehicles/sports_car.json", &vehicle_config);
+    bool configs_ok = true;
+
+    if (!config_load_scene("../../assets/config/scenes/showdown.json", &scene_config)) {
+        configs_ok = false;
+    }
+    if (!config_load_vehicle("../../assets/config/vehicles/sports_car.json", &vehicle_config)) {
+        configs_ok = false;
+    }
+
+    if (!configs_ok) {
+        fprintf(stderr, "\n*** WARNING: Config files missing - using defaults! ***\n");
+        fprintf(stderr, "*** Make sure you're running from client/build/ directory ***\n\n");
+    }
 
     // Initialize entity manager and create vehicles from scene
     EntityManager entities;
@@ -413,7 +436,7 @@ int main(int argc, char* argv[]) {
     float chase_elevation = 0.5f;       // Vertical orbit angle (radians, 0=level, PI/2=overhead)
 
     // Game mode (F to toggle)
-    GameMode game_mode = MODE_TURN_BASED;
+    GameMode game_mode = MODE_FREESTYLE;  // Start in freestyle for quick testing
 
     // Physics state for each car (indexed by entity id)
     CarPhysics car_physics[MAX_ENTITIES];
@@ -494,6 +517,35 @@ int main(int argc, char* argv[]) {
             if (sel && sel->id < MAX_ENTITIES && entity_to_physics[sel->id] >= 0) {
                 chase_camera = !chase_camera;
                 printf("Chase camera %s\n", chase_camera ? "ON" : "OFF");
+
+                // Initialize chase camera from current camera position
+                if (chase_camera) {
+                    int phys_id = entity_to_physics[sel->id];
+                    Vec3 car_pos;
+                    physics_vehicle_get_position(&physics, phys_id, &car_pos);
+
+                    // Calculate spherical coords from camera to car
+                    Vec3 offset = vec3_sub(camera.position, car_pos);
+                    chase_distance = vec3_length(offset);
+                    if (chase_distance < 5.0f) chase_distance = 5.0f;
+
+                    // Azimuth: horizontal angle (atan2 of x/z offset)
+                    chase_azimuth = atan2f(offset.x, offset.z);
+
+                    // Elevation: vertical angle from horizontal
+                    float horiz_dist = sqrtf(offset.x * offset.x + offset.z * offset.z);
+                    chase_elevation = atan2f(offset.y, horiz_dist);
+                    if (chase_elevation < 0.175f) chase_elevation = 0.175f;
+                    if (chase_elevation > 1.22f) chase_elevation = 1.22f;
+
+                    if (g_verbose) {
+                        printf("Chase init: cam=(%.1f,%.1f,%.1f) car=(%.1f,%.1f,%.1f)\n",
+                               camera.position.x, camera.position.y, camera.position.z,
+                               car_pos.x, car_pos.y, car_pos.z);
+                        printf("  offset=(%.1f,%.1f,%.1f) dist=%.1f az=%.3f el=%.3f\n",
+                               offset.x, offset.y, offset.z, chase_distance, chase_azimuth, chase_elevation);
+                    }
+                }
             } else {
                 printf("Select a vehicle first (C)\n");
             }
@@ -703,13 +755,27 @@ int main(int argc, char* argv[]) {
                 int phys_id = entity_to_physics[sel->id];
                 if (phys_id >= 0) {
                     // RMB drag controls spherical orbit (azimuth and elevation)
-                    if (input.mouse_captured && (input.mouse_dx != 0 || input.mouse_dy != 0)) {
-                        float sensitivity = 0.005f;
-                        chase_azimuth -= input.mouse_dx * sensitivity;
-                        chase_elevation -= input.mouse_dy * sensitivity;
-                        // Clamp elevation: 10-70 degrees (0.175 to 1.22 radians)
-                        if (chase_elevation < 0.175f) chase_elevation = 0.175f;
-                        if (chase_elevation > 1.22f) chase_elevation = 1.22f;
+                    // Skip first frame after capture (SDL sends large delta on capture)
+                    if (input.mouse_captured) {
+                        bool has_movement = (input.mouse_dx != 0 || input.mouse_dy != 0);
+
+                        if (input.mouse_capture_just_started) {
+                            // Wait for first movement, then skip it
+                            if (has_movement) {
+                                input.mouse_capture_just_started = false;
+                                if (g_verbose) {
+                                    printf("Chase drag: SKIPPED capture start dx=%d dy=%d\n",
+                                           input.mouse_dx, input.mouse_dy);
+                                }
+                            }
+                        } else if (has_movement) {
+                            float sensitivity = 0.005f;
+                            chase_azimuth += input.mouse_dx * sensitivity;
+                            chase_elevation -= input.mouse_dy * sensitivity;
+                            // Clamp elevation: 10-70 degrees (0.175 to 1.22 radians)
+                            if (chase_elevation < 0.175f) chase_elevation = 0.175f;
+                            if (chase_elevation > 1.22f) chase_elevation = 1.22f;
+                        }
                     }
 
                     // Scroll wheel adjusts chase distance (zoom)
