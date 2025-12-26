@@ -19,6 +19,12 @@ typedef struct BoxRenderer {
     Shader shader;
     BoxMesh unit_box;  // 1x1x1 box centered at origin
     bool valid;
+    // Cached uniform locations (avoid glGetUniformLocation every frame)
+    GLint u_model;
+    GLint u_view;
+    GLint u_projection;
+    GLint u_lightDir;
+    GLint u_objectColor;
 } BoxRenderer;
 
 // Initialize the box renderer

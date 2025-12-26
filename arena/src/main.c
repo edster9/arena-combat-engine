@@ -19,10 +19,12 @@
 #include "ui/ui_render.h"
 #include "ui/ui_text.h"
 #include "physics/ode_physics.h"
+#include "game/config_loader.h"
 
 #include <GL/glew.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 
 // PI constant for rotation
@@ -107,59 +109,50 @@ static bool point_in_rect(float px, float py, UIRect rect) {
            py >= rect.y && py <= rect.y + rect.height;
 }
 
-// Draw arena walls
-static void draw_arena_walls(BoxRenderer* r) {
+// Draw arena walls using config
+static void draw_arena_walls(BoxRenderer* r, ArenaConfig* cfg) {
     Vec3 wall_color = vec3(0.5f, 0.45f, 0.4f);  // Concrete grey-brown
-    float half = ARENA_SIZE / 2.0f;
-    float y = WALL_HEIGHT / 2.0f;
+    float half = cfg->size / 2.0f;
+    float y = cfg->wall_height / 2.0f;
+    float t = cfg->wall_thickness;
 
     // North wall (positive Z)
     box_renderer_draw(r,
-        vec3(0, y, half + WALL_THICKNESS/2),
-        vec3(ARENA_SIZE + WALL_THICKNESS*2, WALL_HEIGHT, WALL_THICKNESS),
+        vec3(0, y, half + t/2),
+        vec3(cfg->size + t*2, cfg->wall_height, t),
         wall_color);
 
     // South wall (negative Z)
     box_renderer_draw(r,
-        vec3(0, y, -half - WALL_THICKNESS/2),
-        vec3(ARENA_SIZE + WALL_THICKNESS*2, WALL_HEIGHT, WALL_THICKNESS),
+        vec3(0, y, -half - t/2),
+        vec3(cfg->size + t*2, cfg->wall_height, t),
         wall_color);
 
     // East wall (positive X)
     box_renderer_draw(r,
-        vec3(half + WALL_THICKNESS/2, y, 0),
-        vec3(WALL_THICKNESS, WALL_HEIGHT, ARENA_SIZE),
+        vec3(half + t/2, y, 0),
+        vec3(t, cfg->wall_height, cfg->size),
         wall_color);
 
     // West wall (negative X)
     box_renderer_draw(r,
-        vec3(-half - WALL_THICKNESS/2, y, 0),
-        vec3(WALL_THICKNESS, WALL_HEIGHT, ARENA_SIZE),
+        vec3(-half - t/2, y, 0),
+        vec3(t, cfg->wall_height, cfg->size),
         wall_color);
 }
 
-// Draw obstacle blocks in the arena (simplified for showdown)
-static void draw_obstacles(BoxRenderer* r) {
-    Vec3 pillar_color = vec3(0.4f, 0.4f, 0.45f);   // Dark concrete
-    Vec3 barrier_color = vec3(0.6f, 0.35f, 0.25f); // Rusty barrier
-
-    // Central pillar - forces cars to maneuver around
-    box_renderer_draw(r, vec3(0, 2.0f, 0), vec3(5, 4, 5), barrier_color);
-
-    // Corner pillars
-    float corner_offset = 22.0f;
-    box_renderer_draw(r, vec3(corner_offset, 2.0f, corner_offset), vec3(3, 4, 3), pillar_color);
-    box_renderer_draw(r, vec3(-corner_offset, 2.0f, corner_offset), vec3(3, 4, 3), pillar_color);
-    box_renderer_draw(r, vec3(corner_offset, 2.0f, -corner_offset), vec3(3, 4, 3), pillar_color);
-    box_renderer_draw(r, vec3(-corner_offset, 2.0f, -corner_offset), vec3(3, 4, 3), pillar_color);
+// Draw obstacles from scene config
+static void draw_obstacles(BoxRenderer* r, SceneJSON* scene) {
+    for (int i = 0; i < scene->obstacle_count; i++) {
+        SceneObstacle* o = &scene->obstacles[i];
+        box_renderer_draw(r, o->position, o->size, o->color);
+    }
 }
 
-// Draw physics vehicles as solid primitives (box chassis + box wheels)
-// This is the physics-first approach: render what ODE simulates
+// Draw physics vehicles as solid primitives (box chassis only, wheels drawn separately)
 static void draw_physics_vehicles(BoxRenderer* r, PhysicsWorld* pw, int selected_id) {
     Vec3 chassis_color = vec3(0.8f, 0.2f, 0.2f);     // Red chassis
     Vec3 chassis_selected = vec3(1.0f, 0.4f, 0.4f);  // Brighter when selected
-    Vec3 wheel_color = vec3(0.15f, 0.15f, 0.15f);    // Dark grey wheels
     Vec3 front_color = vec3(0.9f, 0.9f, 0.2f);       // Yellow front indicator
 
     for (int i = 0; i < pw->vehicle_count; i++) {
@@ -181,10 +174,8 @@ static void draw_physics_vehicles(BoxRenderer* r, PhysicsWorld* pw, int selected
         box_renderer_draw_rotated_matrix(r, pos, chassis_size, rot_matrix, color);
 
         // Draw front indicator (yellow bar at front of car)
-        // Front is +Z in local space, transform by rotation matrix
         float front_offset = cfg->chassis_length * 0.35f;
         float indicator_height = 0.3f;
-        // Local forward is (0, 0, 1), transform by rotation: R * (0, chassis_height/2 + indicator_height/2, front_offset)
         float local_y = cfg->chassis_height * 0.5f + indicator_height * 0.5f;
         Vec3 front_pos = vec3(
             pos.x + rot_matrix[2] * front_offset + rot_matrix[1] * local_y,
@@ -193,39 +184,84 @@ static void draw_physics_vehicles(BoxRenderer* r, PhysicsWorld* pw, int selected
         );
         Vec3 front_size = vec3(cfg->chassis_width * 0.7f, indicator_height, 0.4f);
         box_renderer_draw_rotated_matrix(r, front_pos, front_size, rot_matrix, front_color);
+    }
+}
 
-        // Get wheel states for positions
+// Draw wheels with rotating spokes (batched - efficient)
+static void draw_vehicle_wheels(LineRenderer* lr, PhysicsWorld* pw) {
+    Vec3 rim_color = vec3(0.3f, 0.3f, 0.35f);     // Dark grey rim
+    Vec3 spoke_color = vec3(0.8f, 0.8f, 0.8f);    // Light grey spokes
+
+    for (int i = 0; i < pw->vehicle_count; i++) {
+        if (!pw->vehicles[i].active) continue;
+
+        float rot_matrix[9];
+        physics_vehicle_get_rotation_matrix(pw, i, rot_matrix);
+        float chassis_yaw = atan2f(rot_matrix[2], rot_matrix[0]);
+
+        VehicleConfig* cfg = &pw->vehicles[i].config;
         WheelState wheels[4];
         physics_vehicle_get_wheel_states(pw, i, wheels);
 
-        // Draw wheels as small boxes with chassis rotation (temporary - should be cylinders)
         for (int w = 0; w < 4; w++) {
-            // Wheel box - wider than tall to look like a wheel from above
-            Vec3 wheel_size = vec3(cfg->wheel_width,
-                                   cfg->wheel_radius * 2.0f,
-                                   cfg->wheel_radius * 2.0f);
-            box_renderer_draw_rotated_matrix(r, wheels[w].position, wheel_size, rot_matrix, wheel_color);
+            Vec3 center = wheels[w].position;
+            float radius = cfg->use_per_wheel_config ? cfg->wheel_radii[w] : cfg->wheel_radius;
+            float spin = wheels[w].rotation;
+            float steer = wheels[w].steer_angle;
+
+            // Wheel orientation
+            float total_yaw = chassis_yaw + steer;
+            float fwd_x = sinf(total_yaw);
+            float fwd_z = cosf(total_yaw);
+
+            // Draw rim circle
+            const int RIM_SEGMENTS = 12;
+            for (int s = 0; s < RIM_SEGMENTS; s++) {
+                float a1 = (float)s / RIM_SEGMENTS * 2.0f * (float)M_PI;
+                float a2 = (float)(s + 1) / RIM_SEGMENTS * 2.0f * (float)M_PI;
+
+                float y1 = sinf(a1) * radius;
+                float f1 = cosf(a1) * radius;
+                float y2 = sinf(a2) * radius;
+                float f2 = cosf(a2) * radius;
+
+                Vec3 p1 = vec3(center.x + fwd_x * f1, center.y + y1, center.z + fwd_z * f1);
+                Vec3 p2 = vec3(center.x + fwd_x * f2, center.y + y2, center.z + fwd_z * f2);
+                line_renderer_draw_line(lr, p1, p2, rim_color, 1.0f);
+            }
+
+            // Draw 4 rotating spokes
+            for (int s = 0; s < 4; s++) {
+                float spoke_angle = spin + (float)s * (float)M_PI * 0.5f;
+                float spoke_y = sinf(spoke_angle) * radius * 0.85f;
+                float spoke_f = cosf(spoke_angle) * radius * 0.85f;
+
+                Vec3 spoke_end = vec3(
+                    center.x + fwd_x * spoke_f,
+                    center.y + spoke_y,
+                    center.z + fwd_z * spoke_f
+                );
+                line_renderer_draw_line(lr, center, spoke_end, spoke_color, 1.0f);
+            }
         }
     }
 }
 
-// Create showdown vehicles - 2 cars facing each other
-static void create_test_vehicles(EntityManager* em, float car_scale) {
-    Entity* e;
+// Create vehicles from scene config
+static void create_vehicles_from_scene(EntityManager* em, SceneJSON* scene, float car_scale) {
+    for (int i = 0; i < scene->vehicle_count; i++) {
+        SceneVehicle* sv = &scene->vehicles[i];
 
-    // Red car - south side near wall, facing north (toward blue)
-    e = entity_manager_create(em, ENTITY_VEHICLE, TEAM_RED);
-    e->position = vec3(0, 0, -26);
-    e->rotation_y = 0.0f;  // Facing +Z (north)
-    e->scale = car_scale;
+        Team team = TEAM_RED;
+        if (strcmp(sv->team, "blue") == 0) team = TEAM_BLUE;
 
-    // Blue car - north side near wall, facing south (toward red)
-    e = entity_manager_create(em, ENTITY_VEHICLE, TEAM_BLUE);
-    e->position = vec3(0, 0, 26);
-    e->rotation_y = (float)M_PI;  // Facing -Z (south)
-    e->scale = car_scale;
+        Entity* e = entity_manager_create(em, ENTITY_VEHICLE, team);
+        e->position = sv->position;
+        e->rotation_y = sv->rotation;
+        e->scale = car_scale;
+    }
 
-    printf("Created %d vehicles (showdown mode)\n", em->count);
+    printf("Created %d vehicles from scene config\n", em->count);
 }
 
 int main(int argc, char* argv[]) {
@@ -279,10 +315,16 @@ int main(int argc, char* argv[]) {
         printf("Warning: Could not load car model, using placeholders\n");
     }
 
-    // Initialize entity manager and create test vehicles
+    // Load JSON configs
+    SceneJSON scene_config;
+    VehicleJSON vehicle_config;
+    config_load_scene("assets/scenes/showdown.json", &scene_config);
+    config_load_vehicle("assets/vehicles/sports_car.json", &vehicle_config);
+
+    // Initialize entity manager and create vehicles from scene
     EntityManager entities;
     entity_manager_init(&entities);
-    create_test_vehicles(&entities, car_scale);
+    create_vehicles_from_scene(&entities, &scene_config, car_scale);
 
     // Initialize ODE physics
     PhysicsWorld physics;
@@ -291,14 +333,22 @@ int main(int argc, char* argv[]) {
         // Continue anyway, physics just won't work
     }
 
-    // Set up ground plane
-    physics_set_ground(&physics, 0.0f);
+    // Set up ground plane from scene config
+    physics_set_ground(&physics, scene_config.arena.ground_y);
 
-    // Add central obstacle to physics
-    physics_add_box_obstacle(&physics, vec3(0, 2.0f, 0), vec3(5, 4, 5));
+    // Add arena walls to physics
+    physics_add_arena_walls(&physics, scene_config.arena.size,
+                            scene_config.arena.wall_height,
+                            scene_config.arena.wall_thickness);
 
-    // Create physics vehicles for each entity
-    VehicleConfig vehicle_cfg = physics_default_vehicle_config();
+    // Add obstacles to physics from scene config
+    for (int i = 0; i < scene_config.obstacle_count; i++) {
+        SceneObstacle* o = &scene_config.obstacles[i];
+        physics_add_box_obstacle(&physics, o->position, o->size);
+    }
+
+    // Create physics vehicles for each entity using vehicle config
+    VehicleConfig vehicle_cfg = config_vehicle_to_physics(&vehicle_config);
     int entity_to_physics[MAX_ENTITIES];  // Maps entity id -> physics vehicle id
     memset(entity_to_physics, -1, sizeof(entity_to_physics));
 
@@ -449,17 +499,45 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Respawn selected vehicle with R (requires selected vehicle)
+        // Reload vehicle config and recreate all vehicles with R
         if (input.keys_pressed[KEY_R]) {
-            Entity* sel = entity_manager_get_selected(&entities);
-            if (sel && sel->id < MAX_ENTITIES) {
-                int phys_id = entity_to_physics[sel->id];
-                if (phys_id >= 0) {
-                    physics_vehicle_respawn(&physics, phys_id);
-                }
-            } else {
-                printf("Select a vehicle first (R)\n");
+            printf("Reloading vehicle config...\n");
+            config_load_vehicle("assets/vehicles/sports_car.json", &vehicle_config);
+            vehicle_cfg = config_vehicle_to_physics(&vehicle_config);
+
+            // Destroy and recreate all physics vehicles with new config
+            // (respawn only moves bodies - joints have fixed anchors set at creation)
+            // First, collect all spawn positions
+            int old_count = physics.vehicle_count;
+            Vec3 spawn_positions[MAX_PHYSICS_VEHICLES];
+            float spawn_rotations[MAX_PHYSICS_VEHICLES];
+            for (int i = 0; i < old_count; i++) {
+                spawn_positions[i] = physics.vehicles[i].spawn_position;
+                spawn_rotations[i] = physics.vehicles[i].spawn_rotation;
             }
+
+            // Destroy all vehicles
+            for (int i = 0; i < old_count; i++) {
+                if (physics.vehicles[i].active) {
+                    physics_destroy_vehicle(&physics, i);
+                }
+            }
+
+            // Reset vehicle count so IDs are reused
+            physics.vehicle_count = 0;
+
+            // Recreate all vehicles with new config
+            for (int i = 0; i < old_count; i++) {
+                physics_create_vehicle(&physics, spawn_positions[i], spawn_rotations[i], &vehicle_cfg);
+            }
+            printf("Vehicle config reloaded, all vehicles recreated\n");
+        }
+
+        // Reload scene config with L
+        if (input.keys_pressed[KEY_L]) {
+            printf("Reloading scene config...\n");
+            config_load_scene("assets/scenes/showdown.json", &scene_config);
+            printf("Scene config reloaded (arena/obstacles - restart for full effect)\n");
         }
 
         // Toggle game mode with F (requires selected vehicle)
@@ -565,52 +643,55 @@ int main(int argc, char* argv[]) {
             camera_update(&camera, &input, dt);
         }
 
-        // Freestyle physics update (ODE-based)
+        // Apply vehicle controls only in freestyle mode
         if (game_mode == MODE_FREESTYLE) {
             Entity* selected = entity_manager_get_selected(&entities);
             if (selected && selected->id < MAX_ENTITIES) {
                 int phys_id = entity_to_physics[selected->id];
                 if (phys_id >= 0) {
-                    // Get input (arrow keys for car control)
+                    // Get input (arrow keys for car control, space for brake)
                     float throttle = 0.0f;
+                    float reverse = 0.0f;
                     float brake = 0.0f;
                     float steer = 0.0f;
 
                     if (input.keys[KEY_UP]) throttle = 1.0f;
-                    if (input.keys[KEY_DOWN]) brake = 1.0f;
+                    if (input.keys[KEY_DOWN]) reverse = 1.0f;
+                    if (input.keys[KEY_SPACE]) brake = 1.0f;
                     if (input.keys[KEY_LEFT]) steer = -1.0f;
                     if (input.keys[KEY_RIGHT]) steer = 1.0f;
 
                     // Apply controls to physics vehicle
                     physics_vehicle_set_throttle(&physics, phys_id, throttle);
+                    physics_vehicle_set_reverse(&physics, phys_id, reverse);
                     physics_vehicle_set_brake(&physics, phys_id, brake);
                     physics_vehicle_set_steering(&physics, phys_id, steer);
                 }
             }
+        }
 
-            // Step physics simulation
-            physics_step(&physics, dt);
+        // Always step physics simulation (gravity, collisions, etc. always active)
+        physics_step(&physics, dt);
 
-            // Sync physics state back to entities
-            for (int i = 0; i < entities.count; i++) {
-                Entity* e = &entities.entities[i];
-                if (!e->active || e->type != ENTITY_VEHICLE) continue;
+        // Sync physics state back to entities
+        for (int i = 0; i < entities.count; i++) {
+            Entity* e = &entities.entities[i];
+            if (!e->active || e->type != ENTITY_VEHICLE) continue;
 
-                int phys_id = entity_to_physics[e->id];
-                if (phys_id >= 0) {
-                    Vec3 pos;
-                    float rot_y;
-                    physics_vehicle_get_position(&physics, phys_id, &pos);
-                    physics_vehicle_get_rotation(&physics, phys_id, &rot_y);
-                    e->position = pos;
-                    e->rotation_y = rot_y;
+            int phys_id = entity_to_physics[e->id];
+            if (phys_id >= 0) {
+                Vec3 pos;
+                float rot_y;
+                physics_vehicle_get_position(&physics, phys_id, &pos);
+                physics_vehicle_get_rotation(&physics, phys_id, &rot_y);
+                e->position = pos;
+                e->rotation_y = rot_y;
 
-                    // Store velocity for display
-                    float speed_ms;
-                    physics_vehicle_get_velocity(&physics, phys_id, &speed_ms);
-                    if (e->id < MAX_ENTITIES) {
-                        car_physics[e->id].velocity = speed_ms;
-                    }
+                // Store velocity for display
+                float speed_ms;
+                physics_vehicle_get_velocity(&physics, phys_id, &speed_ms);
+                if (e->id < MAX_ENTITIES) {
+                    car_physics[e->id].velocity = speed_ms;
                 }
             }
         }
@@ -629,8 +710,13 @@ int main(int argc, char* argv[]) {
                         // Clamp elevation: 10-70 degrees (0.175 to 1.22 radians)
                         if (chase_elevation < 0.175f) chase_elevation = 0.175f;
                         if (chase_elevation > 1.22f) chase_elevation = 1.22f;
-                        printf("Orbit: az=%.2f el=%.2f dx=%d dy=%d\n",
-                               chase_azimuth, chase_elevation, input.mouse_dx, input.mouse_dy);
+                    }
+
+                    // Scroll wheel adjusts chase distance (zoom)
+                    if (input.scroll_y != 0) {
+                        chase_distance -= input.scroll_y * 2.0f;
+                        if (chase_distance < 5.0f) chase_distance = 5.0f;
+                        if (chase_distance > 100.0f) chase_distance = 100.0f;
                     }
 
                     // Get car position directly (no smoothing needed with orbit control)
@@ -674,8 +760,8 @@ int main(int argc, char* argv[]) {
 
         // Draw walls, obstacles, and cars with lighting
         box_renderer_begin(&box_renderer, &view, &projection, light_dir);
-        draw_arena_walls(&box_renderer);
-        draw_obstacles(&box_renderer);
+        draw_arena_walls(&box_renderer, &scene_config.arena);
+        draw_obstacles(&box_renderer, &scene_config);
         if (show_cars) {
             // Get selected physics vehicle id for highlighting
             Entity* sel = entity_manager_get_selected(&entities);
@@ -686,8 +772,16 @@ int main(int argc, char* argv[]) {
         }
         box_renderer_end(&box_renderer);
 
-        // Draw ghost path for selected vehicle
+        // All line rendering in one batch (wheels, ghost path, debug)
         if (has_lines) {
+            line_renderer_begin(&line_renderer, &view, &projection);
+
+            // Draw wheels with rotating spokes
+            if (show_cars) {
+                draw_vehicle_wheels(&line_renderer, &physics);
+            }
+
+            // Draw ghost path for selected vehicle
             Entity* selected = entity_manager_get_selected(&entities);
             if (selected) {
                 // Calculate predicted movement
@@ -712,9 +806,6 @@ int main(int argc, char* argv[]) {
                            start.x, start.z, end.x, end.z, selected->rotation_y);
                 }
 
-                // Draw the path
-                line_renderer_begin(&line_renderer, &view, &projection);
-
                 // Path line (cyan/teal color)
                 Vec3 path_color = vec3(0.0f, 0.8f, 0.8f);
                 if (move_dist > 0.01f) {
@@ -729,7 +820,6 @@ int main(int argc, char* argv[]) {
                 line_renderer_draw_circle(&line_renderer, end, 1.5f, end_color, 0.9f);
 
                 // Draw ghost car outline at end position
-                // Simple box outline representing car footprint
                 float car_half_len = 2.25f;  // Half of CAR_LENGTH
                 float car_half_wid = 1.0f;   // Half of CAR_WIDTH
                 float cos_r = cosf(selected->rotation_y);
@@ -752,16 +842,14 @@ int main(int argc, char* argv[]) {
                 corners[4] = corners[0];  // Close the loop
 
                 line_renderer_draw_path(&line_renderer, corners, 5, end_color, 0.9f);
-
-                line_renderer_end(&line_renderer);
             }
 
             // Physics debug visualization (press P to toggle)
             if (show_physics_debug) {
-                line_renderer_begin(&line_renderer, &view, &projection);
                 physics_debug_draw(&physics, &line_renderer);
-                line_renderer_end(&line_renderer);
             }
+
+            line_renderer_end(&line_renderer);
         }
 
         // Draw UI test panels

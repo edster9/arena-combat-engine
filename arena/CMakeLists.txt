@@ -29,9 +29,11 @@ set(SOURCES
     src/render/obj_loader.c
     src/render/line_render.c
     src/game/entity.c
+    src/game/config_loader.c
     src/ui/ui_render.c
     src/ui/ui_text.c
     src/physics/ode_physics.c
+    src/vendor/cJSON.c
 )
 
 # Executable
@@ -55,5 +57,5 @@ target_link_libraries(arena
     m
 )
 
-# Copy assets to build directory (assets is at project root level)
-file(COPY ${CMAKE_SOURCE_DIR}/../assets DESTINATION ${CMAKE_BINARY_DIR})
+# Copy assets to build directory
+file(COPY ${CMAKE_SOURCE_DIR}/assets DESTINATION ${CMAKE_BINARY_DIR})

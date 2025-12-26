@@ -123,6 +123,13 @@ bool box_renderer_init(BoxRenderer* r) {
         return false;
     }
 
+    // Cache uniform locations (avoid glGetUniformLocation every frame)
+    r->u_model = glGetUniformLocation(r->shader.program, "model");
+    r->u_view = glGetUniformLocation(r->shader.program, "view");
+    r->u_projection = glGetUniformLocation(r->shader.program, "projection");
+    r->u_lightDir = glGetUniformLocation(r->shader.program, "lightDir");
+    r->u_objectColor = glGetUniformLocation(r->shader.program, "objectColor");
+
     if (!create_box_mesh(&r->unit_box)) {
         shader_destroy(&r->shader);
         return false;
@@ -143,9 +150,10 @@ void box_renderer_destroy(BoxRenderer* r) {
 
 void box_renderer_begin(BoxRenderer* r, Mat4* view, Mat4* projection, Vec3 light_dir) {
     shader_use(&r->shader);
-    shader_set_mat4(&r->shader, "view", view);
-    shader_set_mat4(&r->shader, "projection", projection);
-    shader_set_vec3(&r->shader, "lightDir", light_dir);
+    // Use cached uniform locations (faster than glGetUniformLocation every frame)
+    glUniformMatrix4fv(r->u_view, 1, GL_FALSE, view->m);
+    glUniformMatrix4fv(r->u_projection, 1, GL_FALSE, projection->m);
+    glUniform3f(r->u_lightDir, light_dir.x, light_dir.y, light_dir.z);
     glBindVertexArray(r->unit_box.vao);
 }
 
@@ -163,8 +171,9 @@ void box_renderer_draw(BoxRenderer* r, Vec3 pos, Vec3 size, Vec3 color) {
     model.m[13] = pos.y;
     model.m[14] = pos.z;
 
-    shader_set_mat4(&r->shader, "model", &model);
-    shader_set_vec3(&r->shader, "objectColor", color);
+    // Use cached uniform locations
+    glUniformMatrix4fv(r->u_model, 1, GL_FALSE, model.m);
+    glUniform3f(r->u_objectColor, color.x, color.y, color.z);
 
     glDrawArrays(GL_TRIANGLES, 0, r->unit_box.vertex_count);
 }
@@ -198,8 +207,9 @@ void box_renderer_draw_rotated(BoxRenderer* r, Vec3 pos, Vec3 size, float rotati
     model.m[14] = pos.z;
     model.m[15] = 1;
 
-    shader_set_mat4(&r->shader, "model", &model);
-    shader_set_vec3(&r->shader, "objectColor", color);
+    // Use cached uniform locations
+    glUniformMatrix4fv(r->u_model, 1, GL_FALSE, model.m);
+    glUniform3f(r->u_objectColor, color.x, color.y, color.z);
 
     glDrawArrays(GL_TRIANGLES, 0, r->unit_box.vertex_count);
 }
@@ -234,8 +244,9 @@ void box_renderer_draw_rotated_matrix(BoxRenderer* r, Vec3 pos, Vec3 size, const
     model.m[14] = pos.z;
     model.m[15] = 1;
 
-    shader_set_mat4(&r->shader, "model", &model);
-    shader_set_vec3(&r->shader, "objectColor", color);
+    // Use cached uniform locations
+    glUniformMatrix4fv(r->u_model, 1, GL_FALSE, model.m);
+    glUniform3f(r->u_objectColor, color.x, color.y, color.z);
 
     glDrawArrays(GL_TRIANGLES, 0, r->unit_box.vertex_count);
 }
@@ -271,8 +282,9 @@ void box_renderer_draw_mesh(BoxRenderer* r, GLuint vao, int vertex_count,
     model.m[14] = pos.z;
     model.m[15] = 1;
 
-    shader_set_mat4(&r->shader, "model", &model);
-    shader_set_vec3(&r->shader, "objectColor", color);
+    // Use cached uniform locations
+    glUniformMatrix4fv(r->u_model, 1, GL_FALSE, model.m);
+    glUniform3f(r->u_objectColor, color.x, color.y, color.z);
 
     // Bind the loaded mesh's VAO and draw
     glBindVertexArray(vao);
