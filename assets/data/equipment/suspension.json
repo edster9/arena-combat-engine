@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "description": "Car Wars suspension types with physics engine mapping",
+    "description": "Car Wars suspension types with Jolt Physics mapping",
     "source": "Car Wars Compendium 2nd Edition",
     "notes": [
       "Suspension determines base Handling Class (HC)",
@@ -8,8 +8,8 @@
       "Suspension adds no weight and takes no space"
     ],
     "physics_values": {
-      "erp": "Error Reduction Parameter (0-1) - higher = stiffer spring",
-      "cfm": "Constraint Force Mixing - lower = stiffer damping",
+      "frequency": "Spring frequency in Hz - higher = stiffer (1.0-3.0 typical)",
+      "damping": "Damping ratio (0-1) - 0.5 = critical damping",
       "travel": "Suspension travel in meters"
     }
   },
@@ -23,8 +23,8 @@
       "hc_van": 0,
       "hc_subcompact": 2,
       "physics": {
-        "erp": 0.5,
-        "cfm": 0.01,
+        "frequency": 1.0,
+        "damping": 0.3,
         "travel": 0.18
       },
       "notes": "Standard/default suspension. Soft, more body roll."
@@ -37,8 +37,8 @@
       "hc_van": 1,
       "hc_subcompact": 3,
       "physics": {
-        "erp": 0.7,
-        "cfm": 0.005,
+        "frequency": 1.5,
+        "damping": 0.5,
         "travel": 0.12
       },
       "notes": "Costs 100% of body cost. Balanced handling."
@@ -51,8 +51,8 @@
       "hc_van": 2,
       "hc_subcompact": 4,
       "physics": {
-        "erp": 0.85,
-        "cfm": 0.002,
+        "frequency": 2.5,
+        "damping": 0.8,
         "travel": 0.08
       },
       "notes": "Costs 150% of body cost. Stiff, minimal body roll."
@@ -67,8 +67,8 @@
       "hc_offroad_bonus": 1,
       "negates_offroad_penalty": true,
       "physics": {
-        "erp": 0.45,
-        "cfm": 0.015,
+        "frequency": 1.0,
+        "damping": 0.4,
         "travel": 0.30
       },
       "notes": "Costs 500% of body cost. Very soft, long travel for rough terrain."

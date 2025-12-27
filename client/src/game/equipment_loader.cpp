@@ -176,12 +176,8 @@ static bool load_tires(const char* filepath) {
             cJSON* physics = cJSON_GetObjectItem(item, "physics");
             if (physics) {
                 t->mu = json_get_float(physics, "mu", 1.5f);
-                t->slip1 = json_get_float(physics, "slip1", 0.001f);
-                t->slip2 = json_get_float(physics, "slip2", 0.001f);
             } else {
                 t->mu = 1.5f;
-                t->slip1 = 0.001f;
-                t->slip2 = 0.001f;
             }
             g_equipment.tire_count++;
         }
@@ -204,12 +200,8 @@ static bool load_tires(const char* filepath) {
             cJSON* physics_mod = cJSON_GetObjectItem(item, "physics_modifier");
             if (physics_mod) {
                 m->mu_bonus = json_get_float(physics_mod, "mu_bonus", 0.0f);
-                m->slip1_modifier = json_get_float(physics_mod, "slip1_modifier", 1.0f);
-                m->slip2_modifier = json_get_float(physics_mod, "slip2_modifier", 1.0f);
             } else {
                 m->mu_bonus = 0.0f;
-                m->slip1_modifier = 1.0f;
-                m->slip2_modifier = 1.0f;
             }
             g_equipment.tire_modifier_count++;
         }
@@ -245,12 +237,12 @@ static bool load_suspension(const char* filepath) {
 
             cJSON* physics = cJSON_GetObjectItem(item, "physics");
             if (physics) {
-                s->erp = json_get_float(physics, "erp", 0.7f);
-                s->cfm = json_get_float(physics, "cfm", 0.005f);
+                s->frequency = json_get_float(physics, "frequency", 1.5f);
+                s->damping = json_get_float(physics, "damping", 0.5f);
                 s->travel = json_get_float(physics, "travel", 0.12f);
             } else {
-                s->erp = 0.7f;
-                s->cfm = 0.005f;
+                s->frequency = 1.5f;
+                s->damping = 0.5f;
                 s->travel = 0.12f;
             }
             g_equipment.suspension_count++;
@@ -388,13 +380,11 @@ const BrakeEquipment* equipment_find_brake(const char* id) {
 
 // Calculate combined tire physics
 TirePhysics equipment_calc_tire_physics(const char* tire_id, const char** modifier_ids, int modifier_count) {
-    TirePhysics result = { 1.5f, 0.001f, 0.001f };  // defaults
+    TirePhysics result = { 1.5f };  // default mu
 
     const TireEquipment* base = equipment_find_tire(tire_id);
     if (base) {
         result.mu = base->mu;
-        result.slip1 = base->slip1;
-        result.slip2 = base->slip2;
     }
 
     // Apply modifiers
@@ -402,8 +392,6 @@ TirePhysics equipment_calc_tire_physics(const char* tire_id, const char** modifi
         const TireModifier* mod = equipment_find_tire_modifier(modifier_ids[i]);
         if (mod) {
             result.mu += mod->mu_bonus;
-            result.slip1 *= mod->slip1_modifier;
-            result.slip2 *= mod->slip2_modifier;
         }
     }
 

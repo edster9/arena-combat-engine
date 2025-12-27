@@ -133,64 +133,106 @@ static Vec3 json_array_to_vec3(cJSON* arr, Vec3 def) {
 }
 
 VehicleJSON config_default_vehicle(void) {
-    VehicleJSON v = {0};
-    v.vehicle_class = VEHICLE_CLASS_WHEELED;
-    v.version = 1;
-    strcpy(v.name, "default");
-
-    // Chassis defaults
-    v.chassis_mass = 600.0f;
-    v.chassis_length = 3.5f;
-    v.chassis_width = 1.8f;
-    v.chassis_height = 0.8f;
-
-    // V2 consolidated defaults
-    v.defaults.wheel.radius = 0.35f;
-    v.defaults.wheel.width = 0.2f;
-    v.defaults.wheel.mass = 15.0f;
-    v.defaults.wheel.friction = 3.0f;
-    v.defaults.wheel.slip = 0.0001f;
-
-    v.defaults.suspension.erp = 0.7f;
-    v.defaults.suspension.cfm = 0.005f;
-    v.defaults.suspension.travel = 0.2f;
-
-    v.wheel_count = 0;
-    v.axle_count = 0;
-
-    v.drivetrain.type = DRIVETRAIN_RWD;
-    v.drivetrain.motor_force = 5000.0f;
-    v.drivetrain.brake_force = 15000.0f;
-    v.drivetrain.max_speed = 80.0f;
-
-    // Legacy V1 physics struct
-    v.physics.chassis_mass = 600.0f;
-    v.physics.chassis_length = 3.5f;
-    v.physics.chassis_width = 1.8f;
-    v.physics.chassis_height = 0.8f;
-
-    v.physics.wheel_mass = 15.0f;
-    v.physics.wheel_radius = 0.35f;
-    v.physics.wheel_width = 0.2f;
-
-    v.physics.suspension_erp = 0.7f;
-    v.physics.suspension_cfm = 0.005f;
-    v.physics.suspension_travel = 0.2f;
-
-    v.physics.max_steer_angle = 0.7f;
-    v.physics.max_motor_force = 5000.0f;
-    v.physics.max_brake_force = 15000.0f;
-
-    v.physics.tire_friction = 3.0f;
-    v.physics.tire_slip = 0.0001f;
-
-    v.physics.wheelbase = 0.0f;
-    v.physics.track_width = 0.0f;
-    v.physics.wheel_mount_height = 0.0f;
-
-    v.motor_max_speed = 80.0f;
-
+    // Return zeroed struct - caller must validate all required fields are set
+    VehicleJSON v = {};
+    memset(&v, 0, sizeof(v));
+    v.vehicle_class = VEHICLE_CLASS_UNKNOWN;  // Marker for uninitialized
     return v;
+}
+
+// Validate that vehicle config has all required fields for physics
+static bool validate_vehicle_config(const VehicleJSON* v, const char* filepath) {
+    bool valid = true;
+
+    // Check chassis dimensions
+    if (v->chassis_mass <= 0.0f) {
+        fprintf(stderr, "ERROR [%s]: Missing or invalid chassis mass\n", filepath);
+        valid = false;
+    }
+    if (v->chassis_length <= 0.0f || v->chassis_width <= 0.0f || v->chassis_height <= 0.0f) {
+        fprintf(stderr, "ERROR [%s]: Missing or invalid chassis dimensions (L=%.2f W=%.2f H=%.2f)\n",
+                filepath, v->chassis_length, v->chassis_width, v->chassis_height);
+        valid = false;
+    }
+
+    // Check wheels
+    if (v->wheel_count < 4) {
+        fprintf(stderr, "ERROR [%s]: Need at least 4 wheels, found %d\n", filepath, v->wheel_count);
+        valid = false;
+    }
+
+    // Check that standard wheel IDs are present (FL, FR, RL, RR)
+    bool has_fl = false, has_fr = false, has_rl = false, has_rr = false;
+    for (int i = 0; i < v->wheel_count; i++) {
+        if (strcmp(v->wheels[i].id, "FL") == 0) has_fl = true;
+        if (strcmp(v->wheels[i].id, "FR") == 0) has_fr = true;
+        if (strcmp(v->wheels[i].id, "RL") == 0) has_rl = true;
+        if (strcmp(v->wheels[i].id, "RR") == 0) has_rr = true;
+
+        // Check each wheel has valid dimensions
+        if (v->wheels[i].radius <= 0.0f) {
+            fprintf(stderr, "ERROR [%s]: Wheel %s has invalid radius %.2f\n",
+                    filepath, v->wheels[i].id, v->wheels[i].radius);
+            valid = false;
+        }
+        if (v->wheels[i].mass <= 0.0f) {
+            fprintf(stderr, "ERROR [%s]: Wheel %s has invalid mass %.2f\n",
+                    filepath, v->wheels[i].id, v->wheels[i].mass);
+            valid = false;
+        }
+    }
+    if (!has_fl || !has_fr || !has_rl || !has_rr) {
+        fprintf(stderr, "ERROR [%s]: Missing standard wheel IDs (FL=%d FR=%d RL=%d RR=%d)\n",
+                filepath, has_fl, has_fr, has_rl, has_rr);
+        valid = false;
+    }
+
+    // Check axles
+    if (v->axle_count < 1) {
+        fprintf(stderr, "ERROR [%s]: Need at least 1 axle, found %d\n", filepath, v->axle_count);
+        valid = false;
+    }
+
+    // Check tire friction
+    if (v->defaults.wheel.friction <= 0.0f) {
+        fprintf(stderr, "ERROR [%s]: Missing or invalid tire friction (mu=%.2f)\n",
+                filepath, v->defaults.wheel.friction);
+        valid = false;
+    }
+
+    // Check suspension - either from defaults or from all axles
+    bool has_suspension = false;
+    if (v->defaults.suspension.frequency > 0.0f) {
+        has_suspension = true;
+    } else {
+        // Check if all axles have their own suspension
+        has_suspension = true;
+        for (int i = 0; i < v->axle_count; i++) {
+            if (!v->axles[i].has_suspension) {
+                has_suspension = false;
+                break;
+            }
+        }
+    }
+    if (!has_suspension) {
+        fprintf(stderr, "ERROR [%s]: Missing suspension - need defaults or per-axle suspension\n", filepath);
+        fprintf(stderr, "       defaults.suspension.frequency=%.2f damping=%.2f\n",
+                v->defaults.suspension.frequency, v->defaults.suspension.damping);
+        for (int i = 0; i < v->axle_count; i++) {
+            fprintf(stderr, "       axle[%d] '%s': has_suspension=%d\n",
+                    i, v->axles[i].name, v->axles[i].has_suspension);
+        }
+        valid = false;
+    }
+
+    // Check drivetrain
+    if (v->drivetrain.motor_force <= 0.0f) {
+        fprintf(stderr, "ERROR [%s]: Missing or invalid motor force (%.0fN)\n",
+                filepath, v->drivetrain.motor_force);
+        valid = false;
+    }
+
+    return valid;
 }
 
 // Parsed tire config (from vehicle JSON tires array)
@@ -283,7 +325,12 @@ static void parse_wheels(cJSON* wheels_arr, VehicleJSON* out) {
             wheel->radius = json_get_float(w, "radius", out->defaults.wheel.radius);
             wheel->width = json_get_float(w, "width", out->defaults.wheel.width);
         }
-        wheel->mass = json_get_float(w, "mass", out->defaults.wheel.mass);
+        // Get mass from JSON, defaults, or estimate from dimensions
+        float default_mass = out->defaults.wheel.mass;
+        if (default_mass <= 0.0f && wheel->radius > 0.0f && wheel->width > 0.0f) {
+            default_mass = 15.0f * (wheel->radius / 0.35f) * (wheel->width / 0.2f);
+        }
+        wheel->mass = json_get_float(w, "mass", default_mass);
         out->wheel_count++;
     }
 }
@@ -315,8 +362,8 @@ static void parse_axles(cJSON* axles_arr, VehicleJSON* out) {
             const SuspensionEquipment* susp = equipment_find_suspension(axle_susp->valuestring);
             if (susp) {
                 axle->has_suspension = true;
-                axle->suspension_erp = susp->erp;
-                axle->suspension_cfm = susp->cfm;
+                axle->suspension_frequency = susp->frequency;
+                axle->suspension_damping = susp->damping;
                 axle->suspension_travel = susp->travel;
             } else {
                 fprintf(stderr, "Warning: Suspension '%s' not found, using defaults\n", axle_susp->valuestring);
@@ -325,8 +372,8 @@ static void parse_axles(cJSON* axles_arr, VehicleJSON* out) {
         } else if (axle_susp && cJSON_IsObject(axle_susp)) {
             // Legacy format: suspension is an object with values
             axle->has_suspension = true;
-            axle->suspension_erp = json_get_float(axle_susp, "erp", out->defaults.suspension.erp);
-            axle->suspension_cfm = json_get_float(axle_susp, "cfm", out->defaults.suspension.cfm);
+            axle->suspension_frequency = json_get_float(axle_susp, "frequency", out->defaults.suspension.frequency);
+            axle->suspension_damping = json_get_float(axle_susp, "damping", out->defaults.suspension.damping);
             axle->suspension_travel = json_get_float(axle_susp, "travel", out->defaults.suspension.travel);
         } else {
             axle->has_suspension = false;
@@ -439,11 +486,11 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
             out->defaults.wheel.friction = json_get_float(def_wheel, "friction", out->defaults.wheel.friction);
             out->defaults.wheel.slip = json_get_float(def_wheel, "slip", out->defaults.wheel.slip);
         }
-        // Parse defaults.suspension
+        // Parse defaults.suspension (Jolt style: frequency/damping)
         cJSON* def_susp = cJSON_GetObjectItem(defaults, "suspension");
         if (def_susp && cJSON_IsObject(def_susp)) {
-            out->defaults.suspension.erp = json_get_float(def_susp, "erp", out->defaults.suspension.erp);
-            out->defaults.suspension.cfm = json_get_float(def_susp, "cfm", out->defaults.suspension.cfm);
+            out->defaults.suspension.frequency = json_get_float(def_susp, "frequency", out->defaults.suspension.frequency);
+            out->defaults.suspension.damping = json_get_float(def_susp, "damping", out->defaults.suspension.damping);
             out->defaults.suspension.travel = json_get_float(def_susp, "travel", out->defaults.suspension.travel);
         }
     }
@@ -463,12 +510,13 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
     // Debug: print wheel positions
     printf("  Wheels: %d parsed\n", out->wheel_count);
     for (int i = 0; i < out->wheel_count; i++) {
-        printf("    %s: (%.2f, %.2f, %.2f) r=%.2f\n",
+        printf("    %s: (%.2f, %.2f, %.2f) r=%.2f m=%.1fkg\n",
                out->wheels[i].id,
                out->wheels[i].position.x,
                out->wheels[i].position.y,
                out->wheels[i].position.z,
-               out->wheels[i].radius);
+               out->wheels[i].radius,
+               out->wheels[i].mass);
     }
 
     // Parse axles array
@@ -486,8 +534,18 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
         }
         TirePhysics tp = equipment_calc_tire_physics(first_tire->type, mod_ids, first_tire->modifier_count);
         out->defaults.wheel.friction = tp.mu;
-        out->defaults.wheel.slip = tp.slip1;
-        printf("  Tires: %s (mu=%.2f, slip=%.4f)\n", first_tire->type, tp.mu, tp.slip1);
+
+        // Add tire weight to total mass
+        const TireEquipment* tire_equip = equipment_find_tire(first_tire->type);
+        if (tire_equip) {
+            float tire_weight_kg = tire_equip->weight_lbs * LBS_TO_KG * out->wheel_count;
+            out->chassis_mass += tire_weight_kg;
+            out->physics.chassis_mass = out->chassis_mass;
+            printf("  Tires: %s x%d (mu=%.2f, %.0fkg total)\n",
+                   first_tire->type, out->wheel_count, tp.mu, tire_weight_kg);
+        } else {
+            printf("  Tires: %s (mu=%.2f)\n", first_tire->type, tp.mu);
+        }
     }
 
     // Parse drivetrain - look for axle_power with power_plant references
@@ -515,11 +573,14 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
                     const PowerPlantEquipment* pp = equipment_find_power_plant(pp_ref->valuestring);
                     if (pp) {
                         out->drivetrain.motor_force = pp->motor_force;
-                        // Calculate top speed based on power plant type and estimated weight
+                        // Add power plant weight to chassis mass for total vehicle mass
+                        out->chassis_mass += pp->weight_kg;
+                        out->physics.chassis_mass = out->chassis_mass;
+                        // Calculate top speed based on power plant type and total weight
                         float est_weight = out->chassis_mass / LBS_TO_KG;  // Convert back to lbs for formula
                         out->drivetrain.max_speed = equipment_calc_top_speed_ms(pp->type, pp->power_factors, (int)est_weight);
-                        printf("  Power Plant: %s (%.0fN motor, %.1f m/s max)\n",
-                               pp->name, out->drivetrain.motor_force, out->drivetrain.max_speed);
+                        printf("  Power Plant: %s (%.0fN motor, %.0fkg, %.1f m/s max)\n",
+                               pp->name, out->drivetrain.motor_force, pp->weight_kg, out->drivetrain.max_speed);
                     } else {
                         fprintf(stderr, "Warning: Power plant '%s' not found\n", pp_ref->valuestring);
                     }
@@ -557,7 +618,7 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
         out->drivetrain.brake_force = out->chassis_mass * (total_brake_mult / out->axle_count);
     }
 
-    // Populate physics struct for ODE
+    // Populate physics struct for Jolt
     out->physics.use_per_wheel_config = true;
 
     // Use first wheel's dimensions as legacy values
@@ -566,14 +627,13 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
         out->physics.wheel_width = out->wheels[0].width;
         out->physics.wheel_mass = out->wheels[0].mass;
     }
-    out->physics.suspension_erp = out->defaults.suspension.erp;
-    out->physics.suspension_cfm = out->defaults.suspension.cfm;
+    out->physics.suspension_frequency = out->defaults.suspension.frequency;
+    out->physics.suspension_damping = out->defaults.suspension.damping;
     out->physics.suspension_travel = out->defaults.suspension.travel;
     out->physics.max_motor_force = out->drivetrain.motor_force;
     out->physics.max_brake_force = out->drivetrain.brake_force;
     out->motor_max_speed = out->drivetrain.max_speed;
     out->physics.tire_friction = out->defaults.wheel.friction;
-    out->physics.tire_slip = out->defaults.wheel.slip;
 
     // Initialize per-wheel arrays with defaults
     for (int i = 0; i < 4; i++) {
@@ -584,8 +644,8 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
         out->physics.wheel_steering[i] = false;
         out->physics.wheel_driven[i] = false;
         out->physics.wheel_steer_angles[i] = 0.6f;
-        out->physics.wheel_suspension_erp[i] = out->defaults.suspension.erp;
-        out->physics.wheel_suspension_cfm[i] = out->defaults.suspension.cfm;
+        out->physics.wheel_suspension_frequency[i] = out->defaults.suspension.frequency;
+        out->physics.wheel_suspension_damping[i] = out->defaults.suspension.damping;
         out->physics.wheel_suspension_travel[i] = out->defaults.suspension.travel;
     }
 
@@ -615,8 +675,8 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
                     out->physics.wheel_steer_angles[idx] = axle->max_steer_angle;
                 }
                 if (axle->has_suspension) {
-                    out->physics.wheel_suspension_erp[idx] = axle->suspension_erp;
-                    out->physics.wheel_suspension_cfm[idx] = axle->suspension_cfm;
+                    out->physics.wheel_suspension_frequency[idx] = axle->suspension_frequency;
+                    out->physics.wheel_suspension_damping[idx] = axle->suspension_damping;
                     out->physics.wheel_suspension_travel[idx] = axle->suspension_travel;
                 }
             }
@@ -640,10 +700,21 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
         }
     }
 
+    cJSON_Delete(root);
+
+    // Validate that all required fields are present
+    if (!validate_vehicle_config(out, filepath)) {
+        fprintf(stderr, "FAILED: Vehicle '%s' is missing required configuration\n", out->name);
+        return false;
+    }
+
+    // Print total weight summary
+    float total_weight_lbs = out->chassis_mass / LBS_TO_KG;
+    printf("  TOTAL WEIGHT: %.0f lbs (%.0f kg) -> Physics mass: %.0f kg\n",
+           total_weight_lbs, out->chassis_mass, out->physics.chassis_mass);
+
     printf("Loaded vehicle: %s (%d wheels, %d axles)\n",
            out->name, out->wheel_count, out->axle_count);
-
-    cJSON_Delete(root);
     return true;
 }
 
@@ -661,12 +732,8 @@ SceneJSON config_default_scene(void) {
     s.arena.ground_y = 0.0f;
 
     s.world.gravity = -9.81f;
-    s.world.erp = 0.8f;
-    s.world.cfm = 0.00001f;
-    s.world.contact.friction = 3.0f;
-    s.world.contact.slip = 0.0001f;
-    s.world.contact.soft_erp = 0.8f;
-    s.world.contact.soft_cfm = 0.0001f;
+    s.world.contact.friction = 1.0f;
+    s.world.contact.restitution = 0.0f;
 
     // Default showdown vehicles
     s.vehicle_count = 2;
@@ -729,19 +796,15 @@ bool config_load_scene(const char* filepath, SceneJSON* out) {
         out->arena.ground_y = json_get_float(arena, "ground_y", out->arena.ground_y);
     }
 
-    // World physics
+    // World physics (simplified for Jolt)
     cJSON* world = cJSON_GetObjectItem(root, "world");
     if (world) {
         out->world.gravity = json_get_float(world, "gravity", out->world.gravity);
-        out->world.erp = json_get_float(world, "erp", out->world.erp);
-        out->world.cfm = json_get_float(world, "cfm", out->world.cfm);
 
         cJSON* contact = cJSON_GetObjectItem(world, "contact");
         if (contact) {
             out->world.contact.friction = json_get_float(contact, "friction", out->world.contact.friction);
-            out->world.contact.slip = json_get_float(contact, "slip", out->world.contact.slip);
-            out->world.contact.soft_erp = json_get_float(contact, "soft_erp", out->world.contact.soft_erp);
-            out->world.contact.soft_cfm = json_get_float(contact, "soft_cfm", out->world.contact.soft_cfm);
+            out->world.contact.restitution = json_get_float(contact, "restitution", out->world.contact.restitution);
         }
     }
 

@@ -18,7 +18,7 @@
 #include "render/line_render.h"
 #include "ui/ui_render.h"
 #include "ui/ui_text.h"
-#include "physics/ode_physics.h"
+#include "physics/jolt_physics.h"
 #include "game/config_loader.h"
 #include "game/equipment_loader.h"
 
@@ -188,8 +188,8 @@ static void draw_physics_vehicles(BoxRenderer* r, PhysicsWorld* pw, int selected
     }
 }
 
-// Draw wheels with rotating spokes (batched - efficient)
-// Uses actual ODE wheel body orientation for correct display during rollovers
+// Draw wheels as cylinders with rotating spokes (batched - efficient)
+// Uses Jolt wheel transform for correct display during rollovers
 static void draw_vehicle_wheels(LineRenderer* lr, PhysicsWorld* pw) {
     Vec3 rim_color = vec3(0.3f, 0.3f, 0.35f);     // Dark grey rim
     Vec3 spoke_color = vec3(0.8f, 0.8f, 0.8f);    // Light grey spokes
@@ -204,55 +204,87 @@ static void draw_vehicle_wheels(LineRenderer* lr, PhysicsWorld* pw) {
         for (int w = 0; w < 4; w++) {
             Vec3 center = wheels[w].position;
             float radius = cfg->use_per_wheel_config ? cfg->wheel_radii[w] : cfg->wheel_radius;
+            float width = cfg->use_per_wheel_config ? cfg->wheel_widths[w] : cfg->wheel_width;
+            float halfWidth = width * 0.5f;
             float spin = wheels[w].rotation;
 
-            // Get wheel orientation from ODE rotation matrix
-            // ODE 3x4 matrix: columns are X, Y, Z axes in world space
-            // Wheel cylinder is Z-aligned, so rim is in X-Y plane
+            // Get wheel orientation from Jolt rotation matrix
+            // Jolt stores column-major: [0-2]=X, [3-5]=Y, [6-8]=Z
+            // Wheel Y axis is the axle, circle is in X-Z plane
             float* rot = wheels[w].rot_matrix;
 
-            // Local X axis (in world coords) - used for rim circle
-            Vec3 axis_x = vec3(rot[0], rot[4], rot[8]);
-            // Local Y axis (in world coords) - used for rim circle
-            Vec3 axis_y = vec3(rot[1], rot[5], rot[9]);
+            // Local X axis (in world coords) - horizontal extent of wheel circle
+            Vec3 axis_x = vec3(rot[0], rot[1], rot[2]);
+            // Local Y axis (in world coords) - axle direction (for width offset)
+            Vec3 axis_y = vec3(rot[3], rot[4], rot[5]);
+            // Local Z axis (in world coords) - vertical extent of wheel circle
+            Vec3 axis_z = vec3(rot[6], rot[7], rot[8]);
 
-            // Draw rim circle in wheel's X-Y plane
+            // Offset for inner and outer rim circles
+            Vec3 inner_offset = vec3(axis_y.x * halfWidth, axis_y.y * halfWidth, axis_y.z * halfWidth);
+            Vec3 outer_offset = vec3(-axis_y.x * halfWidth, -axis_y.y * halfWidth, -axis_y.z * halfWidth);
+
+            // Draw cylinder: two rim circles + connecting lines
             const int RIM_SEGMENTS = 12;
             for (int s = 0; s < RIM_SEGMENTS; s++) {
                 float a1 = (float)s / RIM_SEGMENTS * 2.0f * (float)M_PI;
                 float a2 = (float)(s + 1) / RIM_SEGMENTS * 2.0f * (float)M_PI;
 
-                // Points on rim circle using local X and Y axes
+                // Points on rim circle using local X and Z axes
                 float cos_a1 = cosf(a1) * radius;
                 float sin_a1 = sinf(a1) * radius;
                 float cos_a2 = cosf(a2) * radius;
                 float sin_a2 = sinf(a2) * radius;
 
-                Vec3 p1 = vec3(
-                    center.x + axis_x.x * cos_a1 + axis_y.x * sin_a1,
-                    center.y + axis_x.y * cos_a1 + axis_y.y * sin_a1,
-                    center.z + axis_x.z * cos_a1 + axis_y.z * sin_a1
+                // Inner rim circle (closer to chassis)
+                Vec3 inner1 = vec3(
+                    center.x + inner_offset.x + axis_x.x * cos_a1 + axis_z.x * sin_a1,
+                    center.y + inner_offset.y + axis_x.y * cos_a1 + axis_z.y * sin_a1,
+                    center.z + inner_offset.z + axis_x.z * cos_a1 + axis_z.z * sin_a1
                 );
-                Vec3 p2 = vec3(
-                    center.x + axis_x.x * cos_a2 + axis_y.x * sin_a2,
-                    center.y + axis_x.y * cos_a2 + axis_y.y * sin_a2,
-                    center.z + axis_x.z * cos_a2 + axis_y.z * sin_a2
+                Vec3 inner2 = vec3(
+                    center.x + inner_offset.x + axis_x.x * cos_a2 + axis_z.x * sin_a2,
+                    center.y + inner_offset.y + axis_x.y * cos_a2 + axis_z.y * sin_a2,
+                    center.z + inner_offset.z + axis_x.z * cos_a2 + axis_z.z * sin_a2
                 );
-                line_renderer_draw_line(lr, p1, p2, rim_color, 1.0f);
+                line_renderer_draw_line(lr, inner1, inner2, rim_color, 1.0f);
+
+                // Outer rim circle (away from chassis)
+                Vec3 outer1 = vec3(
+                    center.x + outer_offset.x + axis_x.x * cos_a1 + axis_z.x * sin_a1,
+                    center.y + outer_offset.y + axis_x.y * cos_a1 + axis_z.y * sin_a1,
+                    center.z + outer_offset.z + axis_x.z * cos_a1 + axis_z.z * sin_a1
+                );
+                Vec3 outer2 = vec3(
+                    center.x + outer_offset.x + axis_x.x * cos_a2 + axis_z.x * sin_a2,
+                    center.y + outer_offset.y + axis_x.y * cos_a2 + axis_z.y * sin_a2,
+                    center.z + outer_offset.z + axis_x.z * cos_a2 + axis_z.z * sin_a2
+                );
+                line_renderer_draw_line(lr, outer1, outer2, rim_color, 1.0f);
+
+                // Connect inner and outer every 3rd segment (cleaner look)
+                if (s % 3 == 0) {
+                    line_renderer_draw_line(lr, inner1, outer1, rim_color, 1.0f);
+                }
             }
 
-            // Draw 4 rotating spokes
+            // Draw 4 rotating spokes on outer face
             for (int s = 0; s < 4; s++) {
                 float spoke_angle = spin + (float)s * (float)M_PI * 0.5f;
                 float spoke_cos = cosf(spoke_angle) * radius * 0.85f;
                 float spoke_sin = sinf(spoke_angle) * radius * 0.85f;
 
-                Vec3 spoke_end = vec3(
-                    center.x + axis_x.x * spoke_cos + axis_y.x * spoke_sin,
-                    center.y + axis_x.y * spoke_cos + axis_y.y * spoke_sin,
-                    center.z + axis_x.z * spoke_cos + axis_y.z * spoke_sin
+                Vec3 spoke_center = vec3(
+                    center.x + outer_offset.x,
+                    center.y + outer_offset.y,
+                    center.z + outer_offset.z
                 );
-                line_renderer_draw_line(lr, center, spoke_end, spoke_color, 1.0f);
+                Vec3 spoke_end = vec3(
+                    center.x + outer_offset.x + axis_x.x * spoke_cos + axis_z.x * spoke_sin,
+                    center.y + outer_offset.y + axis_x.y * spoke_cos + axis_z.y * spoke_sin,
+                    center.z + outer_offset.z + axis_x.z * spoke_cos + axis_z.z * spoke_sin
+                );
+                line_renderer_draw_line(lr, spoke_center, spoke_end, spoke_color, 1.0f);
             }
         }
     }
@@ -346,24 +378,25 @@ int main(int argc, char* argv[]) {
     // Load JSON configs - these are required for correct physics
     SceneJSON scene_config;
     VehicleJSON vehicle_config;
-    bool configs_ok = true;
+    bool scene_ok = config_load_scene("../../assets/config/scenes/showdown.json", &scene_config);
+    bool vehicle_ok = config_load_vehicle("../../assets/data/vehicles/sports_car.json", &vehicle_config);
 
-    if (!config_load_scene("../../assets/config/scenes/showdown.json", &scene_config)) {
-        configs_ok = false;
+    if (!scene_ok) {
+        fprintf(stderr, "\n*** ERROR: Scene config failed to load! ***\n");
+        fprintf(stderr, "*** Check assets/config/scenes/showdown.json ***\n\n");
     }
-    if (!config_load_vehicle("../../assets/data/vehicles/sports_car.json", &vehicle_config)) {
-        configs_ok = false;
-    }
-
-    if (!configs_ok) {
-        fprintf(stderr, "\n*** WARNING: Config files missing - using defaults! ***\n");
-        fprintf(stderr, "*** Make sure you're running from client/build/ directory ***\n\n");
+    if (!vehicle_ok) {
+        fprintf(stderr, "\n*** ERROR: Vehicle config failed to load! ***\n");
+        fprintf(stderr, "*** Arena will be empty - no vehicles! ***\n");
+        fprintf(stderr, "*** Check assets/data/vehicles/sports_car.json ***\n\n");
     }
 
-    // Initialize entity manager and create vehicles from scene
+    // Initialize entity manager and create vehicles from scene (only if scene loaded)
     EntityManager entities;
     entity_manager_init(&entities);
-    create_vehicles_from_scene(&entities, &scene_config, car_scale);
+    if (scene_ok && vehicle_ok) {
+        create_vehicles_from_scene(&entities, &scene_config, car_scale);
+    }
 
     // Initialize ODE physics
     PhysicsWorld physics;
@@ -387,15 +420,18 @@ int main(int argc, char* argv[]) {
     }
 
     // Create physics vehicles for each entity using vehicle config
-    VehicleConfig vehicle_cfg = config_vehicle_to_physics(&vehicle_config);
+    // Only if vehicle config loaded successfully
     int entity_to_physics[MAX_ENTITIES];  // Maps entity id -> physics vehicle id
     memset(entity_to_physics, -1, sizeof(entity_to_physics));
 
-    for (int i = 0; i < entities.count; i++) {
-        Entity* e = &entities.entities[i];
-        if (e->active && e->type == ENTITY_VEHICLE) {
-            int phys_id = physics_create_vehicle(&physics, e->position, e->rotation_y, &vehicle_cfg);
-            entity_to_physics[e->id] = phys_id;
+    if (vehicle_ok) {
+        VehicleConfig vehicle_cfg = config_vehicle_to_physics(&vehicle_config);
+        for (int i = 0; i < entities.count; i++) {
+            Entity* e = &entities.entities[i];
+            if (e->active && e->type == ENTITY_VEHICLE) {
+                int phys_id = physics_create_vehicle(&physics, e->position, e->rotation_y, &vehicle_cfg);
+                entity_to_physics[e->id] = phys_id;
+            }
         }
     }
 
@@ -572,35 +608,42 @@ int main(int argc, char* argv[]) {
             printf("Reloading configs...\n");
             // Reload equipment first (in case equipment files changed)
             equipment_load_all("../../assets/data/equipment");
-            config_load_vehicle("../../assets/data/vehicles/sports_car.json", &vehicle_config);
-            vehicle_cfg = config_vehicle_to_physics(&vehicle_config);
 
-            // Destroy and recreate all physics vehicles with new config
-            // (respawn only moves bodies - joints have fixed anchors set at creation)
-            // First, collect all spawn positions
-            int old_count = physics.vehicle_count;
-            Vec3 spawn_positions[MAX_PHYSICS_VEHICLES];
-            float spawn_rotations[MAX_PHYSICS_VEHICLES];
-            for (int i = 0; i < old_count; i++) {
-                spawn_positions[i] = physics.vehicles[i].spawn_position;
-                spawn_rotations[i] = physics.vehicles[i].spawn_rotation;
-            }
+            // Try to reload vehicle config
+            VehicleJSON new_vehicle_config;
+            if (config_load_vehicle("../../assets/data/vehicles/sports_car.json", &new_vehicle_config)) {
+                vehicle_config = new_vehicle_config;
+                VehicleConfig vehicle_cfg = config_vehicle_to_physics(&vehicle_config);
 
-            // Destroy all vehicles
-            for (int i = 0; i < old_count; i++) {
-                if (physics.vehicles[i].active) {
-                    physics_destroy_vehicle(&physics, i);
+                // Destroy and recreate all physics vehicles with new config
+                // (respawn only moves bodies - joints have fixed anchors set at creation)
+                // First, collect all spawn positions
+                int old_count = physics.vehicle_count;
+                Vec3 spawn_positions[MAX_PHYSICS_VEHICLES];
+                float spawn_rotations[MAX_PHYSICS_VEHICLES];
+                for (int i = 0; i < old_count; i++) {
+                    spawn_positions[i] = physics.vehicles[i].spawn_position;
+                    spawn_rotations[i] = physics.vehicles[i].spawn_rotation;
                 }
-            }
 
-            // Reset vehicle count so IDs are reused
-            physics.vehicle_count = 0;
+                // Destroy all vehicles
+                for (int i = 0; i < old_count; i++) {
+                    if (physics.vehicles[i].active) {
+                        physics_destroy_vehicle(&physics, i);
+                    }
+                }
 
-            // Recreate all vehicles with new config
-            for (int i = 0; i < old_count; i++) {
-                physics_create_vehicle(&physics, spawn_positions[i], spawn_rotations[i], &vehicle_cfg);
+                // Reset vehicle count so IDs are reused
+                physics.vehicle_count = 0;
+
+                // Recreate all vehicles with new config
+                for (int i = 0; i < old_count; i++) {
+                    physics_create_vehicle(&physics, spawn_positions[i], spawn_rotations[i], &vehicle_cfg);
+                }
+                printf("Vehicle config reloaded, all vehicles recreated\n");
+            } else {
+                fprintf(stderr, "RELOAD FAILED: Vehicle config has errors - keeping current vehicles\n");
             }
-            printf("Vehicle config reloaded, all vehicles recreated\n");
         }
 
         // Reload scene config with L

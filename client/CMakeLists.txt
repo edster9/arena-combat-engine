@@ -1,13 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
-project(carwars C)
+project(carwars CXX)
 
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Compiler flags
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra")
-set(CMAKE_C_FLAGS_DEBUG "-g -O0")
-set(CMAKE_C_FLAGS_RELEASE "-O2")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
+set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
+set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 
 # Find required packages
 find_package(PkgConfig REQUIRED)
@@ -15,41 +15,44 @@ pkg_check_modules(SDL2 REQUIRED sdl2)
 find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 
-# ODE - handle different library names on Linux vs MinGW
-pkg_check_modules(ODE ode)
-if(NOT ODE_FOUND)
-    # MinGW uses ode_double
-    pkg_check_modules(ODE ode-double)
-    if(NOT ODE_FOUND)
-        # Manual fallback for MinGW
-        if(WIN32 OR MINGW)
-            set(ODE_LIBRARIES ode_double)
-            set(ODE_INCLUDE_DIRS "")
-        else()
-            message(FATAL_ERROR "ODE library not found")
-        endif()
-    endif()
-endif()
+# Jolt Physics via FetchContent
+include(FetchContent)
+FetchContent_Declare(
+    JoltPhysics
+    GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
+    GIT_TAG v5.2.0
+    GIT_SHALLOW TRUE
+    SOURCE_SUBDIR Build
+)
+
+# Jolt build options
+set(TARGET_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+set(TARGET_HELLO_WORLD OFF CACHE BOOL "" FORCE)
+set(TARGET_PERFORMANCE_TEST OFF CACHE BOOL "" FORCE)
+set(TARGET_SAMPLES OFF CACHE BOOL "" FORCE)
+set(TARGET_VIEWER OFF CACHE BOOL "" FORCE)
+
+FetchContent_MakeAvailable(JoltPhysics)
 
 # Source files
 set(SOURCES
-    src/main.c
-    src/platform/platform.c
-    src/math/vec3.c
-    src/math/mat4.c
-    src/render/camera.c
-    src/render/shader.c
-    src/render/floor.c
-    src/render/mesh.c
-    src/render/obj_loader.c
-    src/render/line_render.c
-    src/game/entity.c
-    src/game/config_loader.c
-    src/game/equipment_loader.c
-    src/ui/ui_render.c
-    src/ui/ui_text.c
-    src/physics/ode_physics.c
-    src/vendor/cJSON.c
+    src/main.cpp
+    src/platform/platform.cpp
+    src/math/vec3.cpp
+    src/math/mat4.cpp
+    src/render/camera.cpp
+    src/render/shader.cpp
+    src/render/floor.cpp
+    src/render/mesh.cpp
+    src/render/obj_loader.cpp
+    src/render/line_render.cpp
+    src/game/entity.cpp
+    src/game/config_loader.cpp
+    src/game/equipment_loader.cpp
+    src/ui/ui_render.cpp
+    src/ui/ui_text.cpp
+    src/physics/jolt_physics.cpp
+    src/vendor/cJSON.cpp
 )
 
 # Executable
@@ -59,18 +62,23 @@ add_executable(carwars ${SOURCES})
 target_include_directories(carwars PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${SDL2_INCLUDE_DIRS}
-    ${ODE_INCLUDE_DIRS}
     ${OPENGL_INCLUDE_DIRS}
     ${GLEW_INCLUDE_DIRS}
 )
 
 # Link libraries
 target_link_libraries(carwars
+    Jolt
     ${SDL2_LIBRARIES}
-    ${ODE_LIBRARIES}
     ${OPENGL_LIBRARIES}
     GLEW::GLEW
     m
+)
+
+# Jolt compile definitions
+target_compile_definitions(carwars PRIVATE
+    JPH_PROFILE_ENABLED
+    JPH_DEBUG_RENDERER
 )
 
 # Assets are at ../../assets relative to build directory

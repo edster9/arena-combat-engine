@@ -70,7 +70,7 @@ bool text_renderer_init(TextRenderer* tr, const char* font_path, float font_size
     long file_size = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    unsigned char* font_data = malloc(file_size);
+    unsigned char* font_data = (unsigned char*)malloc(file_size);
     if (!font_data) {
         fclose(f);
         return false;
@@ -97,7 +97,7 @@ bool text_renderer_init(TextRenderer* tr, const char* font_path, float font_size
     // Create atlas - start with reasonable size
     tr->atlas_width = 512;
     tr->atlas_height = 512;
-    unsigned char* atlas = calloc(tr->atlas_width * tr->atlas_height, 1);
+    unsigned char* atlas = (unsigned char*)calloc(tr->atlas_width * tr->atlas_height, 1);
 
     // Pack characters into atlas
     int x = 1, y = 1;

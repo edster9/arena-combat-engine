@@ -26,7 +26,7 @@ static void float_array_init(FloatArray* arr) {
 static void float_array_push(FloatArray* arr, float value) {
     if (arr->count >= arr->capacity) {
         arr->capacity = arr->capacity == 0 ? 64 : arr->capacity * 2;
-        arr->data = realloc(arr->data, arr->capacity * sizeof(float));
+        arr->data = (float*)realloc(arr->data, arr->capacity * sizeof(float));
     }
     arr->data[arr->count++] = value;
 }
@@ -47,7 +47,7 @@ static void int_array_init(IntArray* arr) {
 static void int_array_push(IntArray* arr, int value) {
     if (arr->count >= arr->capacity) {
         arr->capacity = arr->capacity == 0 ? 64 : arr->capacity * 2;
-        arr->data = realloc(arr->data, arr->capacity * sizeof(int));
+        arr->data = (int*)realloc(arr->data, arr->capacity * sizeof(int));
     }
     arr->data[arr->count++] = value;
 }
@@ -207,7 +207,7 @@ bool obj_load(LoadedMesh* mesh, const char* filepath) {
     }
 
     // 6 floats per vertex: x, y, z, nx, ny, nz
-    float* vertex_data = malloc(num_face_verts * 6 * sizeof(float));
+    float* vertex_data = (float*)malloc(num_face_verts * 6 * sizeof(float));
     if (!vertex_data) {
         fprintf(stderr, "Failed to allocate vertex buffer\n");
         float_array_free(&positions);

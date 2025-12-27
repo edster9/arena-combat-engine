@@ -60,9 +60,7 @@ typedef struct {
     int weight_lbs;
     int dp;
     // Physics values
-    float mu;       // Friction coefficient
-    float slip1;    // Lateral slip
-    float slip2;    // Longitudinal slip
+    float mu;       // Friction coefficient (Jolt handles slip internally)
 } TireEquipment;
 
 // Tire modifier
@@ -74,8 +72,6 @@ typedef struct {
     int hc_bonus;
     // Physics modifiers
     float mu_bonus;         // Added to base mu
-    float slip1_modifier;   // Multiplied with base slip1
-    float slip2_modifier;   // Multiplied with base slip2
 } TireModifier;
 
 // Suspension type
@@ -85,10 +81,10 @@ typedef struct {
     float cost_modifier;
     int hc_car;
     int hc_van;
-    // Physics values
-    float erp;      // Error reduction parameter
-    float cfm;      // Constraint force mixing
-    float travel;   // Suspension travel in meters
+    // Physics values (Jolt style)
+    float frequency; // Spring frequency in Hz
+    float damping;   // Damping ratio (0-1)
+    float travel;    // Suspension travel in meters
 } SuspensionEquipment;
 
 // Brake type
@@ -141,9 +137,7 @@ const BrakeEquipment* equipment_find_brake(const char* id);
 
 // Calculate combined tire physics after applying modifiers
 typedef struct {
-    float mu;
-    float slip1;
-    float slip2;
+    float mu;       // Combined friction coefficient
 } TirePhysics;
 
 TirePhysics equipment_calc_tire_physics(const char* tire_id, const char** modifier_ids, int modifier_count);

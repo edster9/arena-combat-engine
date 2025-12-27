@@ -8,7 +8,7 @@
 
 #include <stdbool.h>
 #include "../math/vec3.h"
-#include "../physics/ode_physics.h"
+#include "../physics/jolt_physics.h"
 
 #define MAX_SCENE_VEHICLES 8
 #define MAX_SCENE_OBSTACLES 32
@@ -52,9 +52,9 @@ typedef struct {
     bool steering;                        // Can this axle steer?
     bool driven;                          // Is this axle powered?
     float max_steer_angle;                // Max steering angle (if steering)
-    // Per-axle suspension (optional - falls back to vehicle default)
-    float suspension_erp;
-    float suspension_cfm;
+    // Per-axle suspension (Jolt style: frequency/damping)
+    float suspension_frequency;           // Spring frequency in Hz
+    float suspension_damping;             // Damping ratio (0-1)
     float suspension_travel;
     bool has_suspension;                  // True if axle specifies its own suspension
     // Per-axle brakes
@@ -67,13 +67,13 @@ typedef struct {
     float width;
     float mass;
     float friction;       // Tire friction coefficient (mu)
-    float slip;           // Tire slip allowed
+    float slip;           // Tire slip allowed (legacy, not used by Jolt)
 } WheelDefaults;
 
-// Suspension defaults (v2 format)
+// Suspension defaults (v2 format) - Jolt style
 typedef struct {
-    float erp;            // Error reduction parameter
-    float cfm;            // Constraint force mixing
+    float frequency;      // Spring frequency in Hz (1.0-3.0 typical)
+    float damping;        // Damping ratio (0-1), 0.5 = critical damping
     float travel;         // Suspension travel in meters
 } SuspensionDef;
 
@@ -93,8 +93,7 @@ typedef struct {
 
 // Legacy: Tire configuration (for backwards compatibility)
 typedef struct {
-    float friction;       // Friction coefficient (mu)
-    float slip;           // Slip allowed
+    float friction;       // Friction coefficient (mu) - Jolt handles slip internally
 } TireDef;
 
 // Vehicle configuration loaded from JSON
@@ -145,19 +144,15 @@ typedef struct {
     Vec3 color;
 } SceneObstacle;
 
-// Contact physics parameters
+// Contact physics parameters (simplified for Jolt)
 typedef struct {
     float friction;
-    float slip;
-    float soft_erp;
-    float soft_cfm;
+    float restitution;    // Bounciness (0-1)
 } ContactConfig;
 
-// World physics parameters
+// World physics parameters (simplified for Jolt)
 typedef struct {
     float gravity;
-    float erp;
-    float cfm;
     ContactConfig contact;
 } WorldConfig;
 

@@ -1,21 +1,13 @@
 /*
- * ODE Physics Integration
- * Vehicle physics with independent wheel suspension
+ * Jolt Physics Integration
+ * Vehicle physics with WheeledVehicleController
  */
 
-#ifndef ODE_PHYSICS_H
-#define ODE_PHYSICS_H
+#ifndef JOLT_PHYSICS_H
+#define JOLT_PHYSICS_H
 
 #include <stdbool.h>
 #include "../math/vec3.h"
-
-// Forward declare ODE types (avoid including ode.h in header)
-typedef struct dxWorld* dWorldID;
-typedef struct dxSpace* dSpaceID;
-typedef struct dxBody* dBodyID;
-typedef struct dxGeom* dGeomID;
-typedef struct dxJoint* dJointID;
-typedef struct dxJointGroup* dJointGroupID;
 
 // Maximum vehicles in physics world
 #define MAX_PHYSICS_VEHICLES 8
@@ -29,11 +21,11 @@ typedef struct dxJointGroup* dJointGroupID;
 // Vehicle configuration
 typedef struct {
     float chassis_mass;      // kg
-    float chassis_length;    // meters (X axis)
-    float chassis_width;     // meters (Z axis)
-    float chassis_height;    // meters (Y axis)
+    float chassis_length;    // meters (Z axis - forward)
+    float chassis_width;     // meters (X axis - side to side)
+    float chassis_height;    // meters (Y axis - up)
 
-    // Per-wheel configuration (v2 format)
+    // Per-wheel configuration
     // Order: FL=0, FR=1, RL=2, RR=3
     Vec3 wheel_positions[4]; // Position relative to chassis center
     float wheel_radii[4];    // Radius per wheel (meters)
@@ -43,10 +35,10 @@ typedef struct {
     bool wheel_driven[4];    // Which wheels are powered
     float wheel_steer_angles[4]; // Max steer angle per wheel (radians)
 
-    // Per-wheel suspension (v2 format, set per-axle in JSON)
-    float wheel_suspension_erp[4];
-    float wheel_suspension_cfm[4];
-    float wheel_suspension_travel[4];
+    // Per-wheel suspension (Jolt style: frequency/damping)
+    float wheel_suspension_frequency[4];  // Spring frequency in Hz (1.0-2.0 typical)
+    float wheel_suspension_damping[4];    // Damping ratio (0.0-1.0, 0.5 typical)
+    float wheel_suspension_travel[4];     // Max travel in meters
 
     // Legacy single-wheel values (used as fallback if per-wheel not set)
     float wheel_mass;        // kg per wheel
@@ -54,24 +46,29 @@ typedef struct {
     float wheel_width;       // meters
 
     // Default suspension values (used when per-wheel not specified)
-    float suspension_erp;    // Error reduction (0.1-0.8, higher = stiffer)
-    float suspension_cfm;    // Constraint force mixing (softness)
-    float suspension_travel; // Max suspension travel in meters
+    float suspension_frequency;  // Spring frequency in Hz
+    float suspension_damping;    // Damping ratio
+    float suspension_travel;     // Max suspension travel in meters
 
     float max_steer_angle;   // Max steering angle in radians
-    float max_motor_force;   // Max engine force (Newtons)
-    float max_brake_force;   // Max brake force (Newtons)
+
+    // Engine/drivetrain
+    float engine_max_torque; // Nm
+    float engine_max_rpm;    // Max RPM
 
     // Tire properties
     float tire_friction;     // Friction coefficient (mu), higher = more grip
-    float tire_slip;         // Slip allowed (lower = more grip, higher = more drift)
+
+    // Legacy values for compatibility
+    float max_motor_force;   // Will be converted to torque
+    float max_brake_force;   // Brake force (Newtons)
 
     // Wheel mount points (legacy - used if wheel_positions all zero)
-    float wheelbase;         // Distance between front and rear axles (Z axis)
-    float track_width;       // Distance between left and right wheels (X axis)
+    float wheelbase;         // Distance between front and rear axles
+    float track_width;       // Distance between left and right wheels
     float wheel_mount_height;// How far below chassis center the suspension mounts
 
-    // Flag to indicate v2 per-wheel config is active
+    // Flag to indicate per-wheel config is active
     bool use_per_wheel_config;
 } VehicleConfig;
 
@@ -79,26 +76,21 @@ typedef struct {
 typedef struct {
     Vec3 position;
     float rotation;          // Wheel spin angle
-    float steer_angle;       // Current steering angle (front wheels)
+    float steer_angle;       // Current steering angle
     float suspension_compression; // 0 = fully extended, 1 = fully compressed
-    float rot_matrix[12];    // ODE rotation matrix (3x4, column-major)
+    float rot_matrix[12];    // Rotation matrix (3x4, column-major)
 } WheelState;
+
+// Opaque physics types (implementation hidden)
+struct PhysicsWorldImpl;
+struct PhysicsVehicleImpl;
 
 // Physics vehicle handle
 typedef struct {
     int id;
     bool active;
 
-    // ODE bodies
-    dBodyID chassis;
-    dBodyID wheels[4];
-
-    // ODE joints (Hinge2 = suspension + steering)
-    dJointID suspensions[4];
-
-    // ODE geometry for collision
-    dGeomID chassis_geom;
-    dGeomID wheel_geoms[4];
+    struct PhysicsVehicleImpl* impl;
 
     // Current state
     WheelState wheel_states[4];
@@ -113,14 +105,18 @@ typedef struct {
 
     // Config
     VehicleConfig config;
+
+    // Acceleration test state
+    bool accel_test_active;
+    float accel_test_elapsed;    // Time since test started (seconds)
+    float accel_test_print_timer; // Timer for periodic output
+    Vec3 accel_test_start_pos;
+    float accel_test_last_speed;
 } PhysicsVehicle;
 
 // Physics world
 typedef struct {
-    dWorldID world;
-    dSpaceID space;
-    dJointGroupID contact_group;
-    dGeomID ground;
+    struct PhysicsWorldImpl* impl;
 
     PhysicsVehicle vehicles[MAX_PHYSICS_VEHICLES];
     int vehicle_count;
@@ -128,6 +124,10 @@ typedef struct {
     float step_size;         // Physics timestep
     float accumulator;       // Time accumulator for fixed timestep
 } PhysicsWorld;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // World management
 bool physics_init(PhysicsWorld* pw);
@@ -153,14 +153,16 @@ void physics_vehicle_respawn(PhysicsWorld* pw, int vehicle_id);  // Reset to spa
 // Get vehicle state (for rendering)
 void physics_vehicle_get_position(PhysicsWorld* pw, int vehicle_id, Vec3* pos);
 void physics_vehicle_get_rotation(PhysicsWorld* pw, int vehicle_id, float* rotation_y);
-void physics_vehicle_get_rotation_matrix(PhysicsWorld* pw, int vehicle_id, float* rot_matrix);  // 9 floats (3x3 row-major)
+void physics_vehicle_get_rotation_matrix(PhysicsWorld* pw, int vehicle_id, float* rot_matrix);
 void physics_vehicle_get_velocity(PhysicsWorld* pw, int vehicle_id, float* speed_ms);
 void physics_vehicle_get_wheel_states(PhysicsWorld* pw, int vehicle_id, WheelState* wheels);
-
-// REMOVED: physics_default_vehicle_config() - config must come from JSON
 
 // Debug visualization - call between line_renderer_begin/end
 struct LineRenderer;  // Forward declare
 void physics_debug_draw(PhysicsWorld* pw, struct LineRenderer* lr);
 
-#endif // ODE_PHYSICS_H
+#ifdef __cplusplus
+}
+#endif
+
+#endif // JOLT_PHYSICS_H

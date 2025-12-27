@@ -86,7 +86,7 @@ void platform_shutdown(Platform* p) {
         p->gl_context = NULL;
     }
     if (p->window) {
-        SDL_DestroyWindow(p->window);
+        SDL_DestroyWindow((SDL_Window*)p->window);
         p->window = NULL;
     }
     SDL_Quit();
@@ -167,7 +167,7 @@ void platform_poll_events(Platform* p, InputState* input) {
 }
 
 void platform_swap_buffers(Platform* p) {
-    SDL_GL_SwapWindow(p->window);
+    SDL_GL_SwapWindow((SDL_Window*)p->window);
 }
 
 double platform_get_time(void) {
@@ -188,13 +188,13 @@ void platform_capture_mouse(Platform* p, InputState* input, bool capture) {
 }
 
 void platform_set_title(Platform* p, const char* title) {
-    SDL_SetWindowTitle(p->window, title);
+    SDL_SetWindowTitle((SDL_Window*)p->window, title);
 }
 
 void platform_toggle_fullscreen(Platform* p) {
     p->fullscreen = !p->fullscreen;
     SDL_SetWindowFullscreen(
-        p->window,
+        (SDL_Window*)p->window,
         p->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0
     );
 }

@@ -10,10 +10,10 @@
   },
 
   "wheels": [
-    { "id": "FL", "position": [1.4, -1.25, 1.3], "tire": "front_tires" },
-    { "id": "FR", "position": [1.4, -1.25, -1.3], "tire": "front_tires" },
-    { "id": "RL", "position": [-1.3, -1.25, 1.3], "tire": "rear_tires" },
-    { "id": "RR", "position": [-1.3, -1.25, -1.3], "tire": "rear_tires" }
+    { "id": "FL", "position": [1.4, -1, 1.3], "tire": "front_tires" },
+    { "id": "FR", "position": [1.4, -1, -1.3], "tire": "front_tires" },
+    { "id": "RL", "position": [-1.3, -1, 1.3], "tire": "rear_tires" },
+    { "id": "RR", "position": [-1.3, -1, -1.3], "tire": "rear_tires" }
   ],
 
   "tires": [

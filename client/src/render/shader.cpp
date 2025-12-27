@@ -70,13 +70,13 @@ static char* read_file(const char* path) {
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    char* buffer = malloc(size + 1);
+    char* buffer = (char*)malloc(size + 1);
     if (!buffer) {
         fclose(f);
         return NULL;
     }
 
-    fread(buffer, 1, size, f);
+    (void)fread(buffer, 1, size, f);
     buffer[size] = '\0';
     fclose(f);
 
