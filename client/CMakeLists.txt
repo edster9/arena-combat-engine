@@ -49,6 +49,7 @@ set(SOURCES
     src/game/entity.cpp
     src/game/config_loader.cpp
     src/game/equipment_loader.cpp
+    src/game/handling.cpp
     src/ui/ui_render.cpp
     src/ui/ui_text.cpp
     src/physics/jolt_physics.cpp

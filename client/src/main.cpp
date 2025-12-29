@@ -1291,19 +1291,21 @@ int main(int argc, char* argv[]) {
             {
                 const char* team_name = "None";
                 Entity* sel = entity_manager_get_selected(&entities);
+                int phys_id = -1;
                 if (sel) {
                     team_name = sel->team == TEAM_RED ? "Red" :
                                 sel->team == TEAM_BLUE ? "Blue" : "Other";
+                    if (sel->id < MAX_ENTITIES) {
+                        phys_id = entity_to_physics[sel->id];
+                    }
                 }
 
                 char status_text[160];
                 if (game_mode == MODE_FREESTYLE) {
                     // Freestyle: show real-time velocity and cruise control status
                     float vel = 0.0f;
-                    int phys_id = -1;
                     if (sel && sel->id < MAX_ENTITIES) {
                         vel = car_physics[sel->id].velocity;
-                        phys_id = entity_to_physics[sel->id];
                     }
                     // Convert to mph (velocity * 2.237 for m/s to mph)
                     int display_mph = (int)(fabsf(vel) * 2.237f);
@@ -1350,25 +1352,37 @@ int main(int argc, char* argv[]) {
                     snprintf(traction_str, sizeof(traction_str), "  |  F:%.0fN (%d/4)",
                              force_n, wheels_contact);
 
+                    // Handling status display: HS/HC
+                    char handling_str[16] = "";
+                    int hs = 0, hc = 0;
+                    if (phys_id >= 0) {
+                        physics_vehicle_get_handling(&physics, phys_id, &hs, &hc);
+                        snprintf(handling_str, sizeof(handling_str), "  |  HS:%d/%d", hs, hc);
+                    }
+
                     // Check cruise control status
                     bool cruise_on = phys_id >= 0 && physics_vehicle_cruise_active(&physics, phys_id);
                     if (cruise_on) {
                         float target_ms = physics_vehicle_cruise_target(&physics, phys_id);
                         int target_mph = (int)(target_ms * 2.237f);
                         snprintf(status_text, sizeof(status_text),
-                            "[F] %s  |  %d mph  |  CRUISE: %d  |  Steer: %s%s%s",
-                            team_name, display_mph, target_mph, steer_str, drift_str, traction_str);
+                            "[F] %s  |  %d mph  |  CRUISE: %d%s  |  Steer: %s%s%s",
+                            team_name, display_mph, target_mph, handling_str, steer_str, drift_str, traction_str);
                     } else {
                         snprintf(status_text, sizeof(status_text),
-                            "[F] %s  |  %d mph  |  Steer: %s%s%s",
-                            team_name, display_mph, steer_str, drift_str, traction_str);
+                            "[F] %s  |  %d mph%s  |  Steer: %s%s%s",
+                            team_name, display_mph, handling_str, steer_str, drift_str, traction_str);
                     }
                 } else {
-                    // Turn-based: show planning info
+                    // Turn-based: show planning info with handling
                     const char* speed_names[] = {"BRAKE", "HOLD", "ACCEL"};
+                    int hs = 0, hc = 0;
+                    if (phys_id >= 0) {
+                        physics_vehicle_get_handling(&physics, phys_id, &hs, &hc);
+                    }
                     snprintf(status_text, sizeof(status_text),
-                        "[F] Mode: TURNS  |  Vehicle: %s  |  Speed: %d mph  |  Next: %s  |  Phase: P%d",
-                        team_name, planning.current_speed,
+                        "[T] %s  |  %d mph  |  HS:%d/%d  |  Next: %s  |  Phase: P%d",
+                        team_name, planning.current_speed, hs, hc,
                         speed_names[planning.speed_choice], planning.selected_phase + 1);
                 }
                 text_draw(&text_renderer, status_text, 20, platform.height - 42, UI_COLOR_WHITE);

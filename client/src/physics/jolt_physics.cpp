@@ -715,6 +715,13 @@ int physics_create_vehicle(PhysicsWorld* pw, ::Vec3 position, float rotation_y, 
     v->accel_test_start_pos = (::Vec3){0, 0, 0};
     v->accel_test_last_speed = 0.0f;
 
+    // Reset cruise control
+    v->cruise_enabled = false;
+    v->cruise_target_ms = 0.0f;
+
+    // Initialize handling system with calculated HC
+    handling_init(&v->handling, config->handling_class);
+
     auto* vimpl = v->impl;
 
     // Vehicle dimensions
@@ -990,6 +997,10 @@ void physics_vehicle_respawn(PhysicsWorld* pw, int vehicle_id)
     v->accel_test_timing_started = false;
     v->accel_test_elapsed = 0.0f;
     v->accel_test_print_timer = 0.0f;
+
+    // Reset cruise control
+    v->cruise_enabled = false;
+    v->cruise_target_ms = 0.0f;
 }
 
 void physics_vehicle_start_accel_test(PhysicsWorld* pw, int vehicle_id)
@@ -1015,6 +1026,10 @@ void physics_vehicle_start_accel_test(PhysicsWorld* pw, int vehicle_id)
         v->accel_test_active = false;
         return;
     }
+
+    // Disable cruise control to prevent interference with test
+    v->cruise_enabled = false;
+    v->cruise_target_ms = 0.0f;
 
     // Start the test
     v->accel_test_active = true;
@@ -1441,6 +1456,18 @@ void physics_vehicle_get_traction_info(PhysicsWorld* pw, int vehicle_id, float* 
 
     if (force_n) *force_n = v->last_applied_force;
     if (traction) *traction = v->last_traction;
+}
+
+void physics_vehicle_get_handling(PhysicsWorld* pw, int vehicle_id, int* hs, int* hc)
+{
+    if (!pw || !pw->impl) return;
+    if (vehicle_id < 0 || vehicle_id >= MAX_PHYSICS_VEHICLES) return;
+
+    PhysicsVehicle* v = &pw->vehicles[vehicle_id];
+    if (!v->active) return;
+
+    if (hs) *hs = v->handling.handling_status;
+    if (hc) *hc = v->handling.handling_class;
 }
 
 } // extern "C"

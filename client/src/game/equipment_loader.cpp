@@ -75,6 +75,7 @@ static bool load_chassis(const char* filepath) {
             c->weight_lbs = json_get_int(item, "weight", 0);
             c->max_load_lbs = json_get_int(item, "max_load", 0);
             c->spaces = json_get_int(item, "spaces", 0);
+            c->base_hc_modifier = json_get_int(item, "base_hc_modifier", 0);
 
             // Physics dimensions
             cJSON* physics = cJSON_GetObjectItem(item, "physics");

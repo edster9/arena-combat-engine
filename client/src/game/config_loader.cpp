@@ -4,6 +4,7 @@
 
 #include "config_loader.h"
 #include "equipment_loader.h"
+#include "handling.h"
 #include "../vendor/cJSON.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -336,8 +337,9 @@ static void parse_wheels(cJSON* wheels_arr, VehicleJSON* out) {
 }
 
 // Parse axles array (with per-axle suspension/brakes support)
-static void parse_axles(cJSON* axles_arr, VehicleJSON* out) {
+static void parse_axles(cJSON* axles_arr, VehicleJSON* out, int* hc_suspension_out) {
     out->axle_count = 0;
+    int best_suspension_hc = 0;  // Track best suspension HC found
     cJSON* a;
     cJSON_ArrayForEach(a, axles_arr) {
         if (out->axle_count >= MAX_AXLES) break;
@@ -365,6 +367,10 @@ static void parse_axles(cJSON* axles_arr, VehicleJSON* out) {
                 axle->suspension_frequency = susp->frequency;
                 axle->suspension_damping = susp->damping;
                 axle->suspension_travel = susp->travel;
+                // Track best suspension HC (use hc_car for now, could check vehicle type later)
+                if (susp->hc_car > best_suspension_hc) {
+                    best_suspension_hc = susp->hc_car;
+                }
             } else {
                 fprintf(stderr, "Warning: Suspension '%s' not found, using defaults\n", axle_susp->valuestring);
                 axle->has_suspension = false;
@@ -409,10 +415,20 @@ static void parse_axles(cJSON* axles_arr, VehicleJSON* out) {
         }
         out->axle_count++;
     }
+
+    // Store the best suspension HC found
+    if (hc_suspension_out) {
+        *hc_suspension_out = best_suspension_hc;
+    }
 }
 
 bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
     *out = config_default_vehicle();
+
+    // Track HC components for final calculation
+    int hc_chassis = 0;      // From chassis type (e.g., subcompact +1, van -1)
+    int hc_suspension = 0;   // From suspension type (e.g., improved = 2)
+    int hc_tires = 0;        // From tire modifiers (e.g., radials +1)
 
     char* json_str = read_file(filepath);
     if (!json_str) {
@@ -476,11 +492,14 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
                     out->chassis_height = (float)hgt_override->valuedouble;
                 }
 
-                printf("  Chassis: %s (%.1fm x %.1fm x %.1fm, %.0fkg, CoM=[%.2f,%.2f,%.2f])\n",
+                // Store chassis HC modifier
+                hc_chassis = chassis_equip->base_hc_modifier;
+
+                printf("  Chassis: %s (%.1fm x %.1fm x %.1fm, %.0fkg, CoM=[%.2f,%.2f,%.2f], HC%+d)\n",
                        chassis_equip->name, out->chassis_length, out->chassis_width,
                        out->chassis_height, out->chassis_mass,
                        out->physics.center_of_mass.x, out->physics.center_of_mass.y,
-                       out->physics.center_of_mass.z);
+                       out->physics.center_of_mass.z, hc_chassis);
             } else {
                 fprintf(stderr, "Warning: Chassis '%s' not found, using defaults\n", body_ref->valuestring);
             }
@@ -546,7 +565,7 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
     // Parse axles array
     cJSON* axles = cJSON_GetObjectItem(root, "axles");
     if (axles && cJSON_IsArray(axles)) {
-        parse_axles(axles, out);
+        parse_axles(axles, out, &hc_suspension);
     }
 
     // Calculate tire friction from first tire's equipment
@@ -618,18 +637,20 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
             //   2. Engine RPM ramp-up (1.5s to full throttle, loses ~0.75s effective time)
             // Per-bucket K values derived from empirical testing + ramp compensation:
             //   5 mph/s (12s): K=1.75
-            //   10 mph/s (6s): K=1.59
-            //   15 mph/s (4s): K=1.62
-            //   20 mph/s (3s): K=1.55 (estimated)
+            //   10 mph/s (6s): K=1.40
+            //   15 mph/s (4s): K=1.42
+            //   20 mph/s (3s): K=1.36 (estimated)
+            // Note: K compensates for physics losses (friction, drag, suspension)
+            // Tuned via accel test to hit target 0-60 times
             float k_compensation;
             if (out->physics.target_0_60_seconds >= 12.0f) {
-                k_compensation = 1.75f;  // 5 mph/s class
+                k_compensation = 1.54f;  // 5 mph/s class
             } else if (out->physics.target_0_60_seconds >= 6.0f) {
-                k_compensation = 1.59f;  // 10 mph/s class
+                k_compensation = 1.40f;  // 10 mph/s class
             } else if (out->physics.target_0_60_seconds >= 4.0f) {
-                k_compensation = 1.62f;  // 15 mph/s class
+                k_compensation = 1.42f;  // 15 mph/s class
             } else {
-                k_compensation = 1.55f;  // 20 mph/s class
+                k_compensation = 1.36f;  // 20 mph/s class
             }
             out->physics.accel_force = out->physics.chassis_mass * out->physics.target_accel_ms2 * k_compensation;
 
@@ -755,6 +776,11 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
     float total_weight_lbs = out->chassis_mass / LBS_TO_KG;
     printf("  TOTAL WEIGHT: %.0f lbs (%.0f kg) -> Physics mass: %.0f kg\n",
            total_weight_lbs, out->chassis_mass, out->physics.chassis_mass);
+
+    // Calculate and store handling class
+    out->physics.handling_class = handling_calculate_hc(hc_chassis, hc_suspension, hc_tires);
+    printf("  Handling Class: HC %d (chassis %+d, suspension %+d, tires %+d)\n",
+           out->physics.handling_class, hc_chassis, hc_suspension, hc_tires);
 
     printf("Loaded vehicle: %s (%d wheels, %d axles)\n",
            out->name, out->wheel_count, out->axle_count);

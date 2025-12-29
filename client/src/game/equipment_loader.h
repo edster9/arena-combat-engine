@@ -37,6 +37,8 @@ typedef struct {
     float height_max;
     // Center of mass offset [x, y, z] from chassis center
     float center_of_mass[3];
+    // Handling class modifier (e.g., subcompact +1, van -1)
+    int base_hc_modifier;
 } ChassisEquipment;
 
 // Power plant equipment

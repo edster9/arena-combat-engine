@@ -8,6 +8,7 @@
 
 #include <stdbool.h>
 #include "../math/vec3.h"
+#include "../game/handling.h"
 
 // Maximum vehicles in physics world
 #define MAX_PHYSICS_VEHICLES 8
@@ -65,6 +66,9 @@ typedef struct {
     float brake_force;            // Brake force in Newtons
     float top_speed_ms;           // Top speed limit in m/s (from Car Wars tables)
     char vehicle_name[64];        // Vehicle name for test output
+
+    // Car Wars handling
+    int handling_class;           // Base HC (from chassis + suspension + tires)
 
     // Wheel mount points (legacy - used if wheel_positions all zero)
     float wheelbase;         // Distance between front and rear axles
@@ -127,6 +131,9 @@ typedef struct {
     // Debug: last applied force (for status bar display)
     float last_applied_force;    // Force in Newtons applied this frame
     float last_traction;         // Traction factor (0-1, wheels on ground)
+
+    // Car Wars handling state (runtime)
+    VehicleHandling handling;    // HC/HS tracking and control rolls
 } PhysicsVehicle;
 
 // Physics world
@@ -184,6 +191,7 @@ void physics_vehicle_get_velocity(PhysicsWorld* pw, int vehicle_id, float* speed
 void physics_vehicle_get_lateral_velocity(PhysicsWorld* pw, int vehicle_id, float* lateral_ms);  // Drift detection (sideways speed)
 void physics_vehicle_get_wheel_states(PhysicsWorld* pw, int vehicle_id, WheelState* wheels);
 void physics_vehicle_get_traction_info(PhysicsWorld* pw, int vehicle_id, float* force_n, float* traction);  // Debug: force & traction
+void physics_vehicle_get_handling(PhysicsWorld* pw, int vehicle_id, int* hs, int* hc);  // Current HS and base HC
 
 // Debug visualization - call between line_renderer_begin/end
 struct LineRenderer;  // Forward declare

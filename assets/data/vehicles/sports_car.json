@@ -7,12 +7,12 @@
     "body": "compact",
     "modifier": "chassis_standard",
     "frame": "frame_standard",
-    "length": 4.5,
-    "width": 1.7,
+    "length": 4.2,
+    "width": 1.8,
     "height": 1.0
   },
 
-  "power_plant": "gas_200cid",
+  "power_plant": "gas_100cid",
 
   "wheels": [
     { "id": "FL", "position": [1.2, -0.5, 0.75], "tire": "front_tires" },
