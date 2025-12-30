@@ -27,14 +27,6 @@ typedef enum {
     VEHICLE_CLASS_UNKNOWN
 } VehicleClass;
 
-// Drivetrain types
-typedef enum {
-    DRIVETRAIN_RWD = 0,   // Rear wheel drive
-    DRIVETRAIN_FWD,       // Front wheel drive
-    DRIVETRAIN_AWD,       // All wheel drive
-    DRIVETRAIN_4WD        // Four wheel drive (with transfer case)
-} DrivetrainType;
-
 // Individual wheel definition (v2 format)
 typedef struct {
     char id[16];          // Wheel identifier (e.g., "FL", "RR", "RL2")
@@ -83,14 +75,6 @@ typedef struct {
     SuspensionDef suspension;
 } VehicleDefaults;
 
-// Drivetrain configuration (v2 format)
-typedef struct {
-    DrivetrainType type;
-    float motor_force;    // Max motor force in Newtons
-    float brake_force;    // Max brake force in Newtons
-    float max_speed;      // Max speed in units/sec
-} DrivetrainDef;
-
 // Legacy: Tire configuration (for backwards compatibility)
 typedef struct {
     float friction;       // Friction coefficient (mu) - Jolt handles slip internally
@@ -119,9 +103,6 @@ typedef struct {
     // V2 format: Axle definitions
     AxleDef axles[MAX_AXLES];
     int axle_count;
-
-    // V2 format: Drivetrain
-    DrivetrainDef drivetrain;
 
     // Legacy V1 format: flat physics struct (for backwards compatibility)
     VehicleConfig physics;
@@ -198,26 +179,12 @@ typedef struct {
     float travel;
 } PhysicsModeSuspensionOverrides;
 
-// Physics mode transmission overrides
-#define MAX_TRANSMISSION_GEARS 8
-typedef struct {
-    float gear_ratios[MAX_TRANSMISSION_GEARS];
-    int gear_count;
-    float reverse_ratios[MAX_TRANSMISSION_GEARS];
-    int reverse_count;
-    float differential_ratio;
-} PhysicsModeTransmissionOverrides;
-
 // Physics mode overrides
 typedef struct {
-    DrivetrainType drivetrain;
-    bool override_drivetrain;
     PhysicsModeTireOverrides tire;
     bool override_tire;
     PhysicsModeSuspensionOverrides suspension;
     bool override_suspension;
-    PhysicsModeTransmissionOverrides transmission;
-    bool override_transmission;
 } PhysicsModeOverrides;
 
 // Physics mode configuration

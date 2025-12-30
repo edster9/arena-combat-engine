@@ -38,22 +38,22 @@ Assets should be developed in parallel with code, but **placeholders are accepta
 
 ### Phase 1: Demo
 
-| Asset | Description | Placeholder |
-|-------|-------------|-------------|
-| **Vehicle: Striker** | Compact car, aggressive | Colored box |
-| **Vehicle: Bruiser** | Sedan, bulky, armored | Colored box |
-| **Arena Floor** | Flat plane with grid | Plane primitive |
-| **Arena Wall** | Concrete/metal barrier | Box primitive |
-| **Obstacle: Block** | Concrete barrier | Box primitive |
+| Asset                | Description             | Placeholder     |
+| -------------------- | ----------------------- | --------------- |
+| **Vehicle: Striker** | Compact car, aggressive | Colored box     |
+| **Vehicle: Bruiser** | Sedan, bulky, armored   | Colored box     |
+| **Arena Floor**      | Flat plane with grid    | Plane primitive |
+| **Arena Wall**       | Concrete/metal barrier  | Box primitive   |
+| **Obstacle: Block**  | Concrete barrier        | Box primitive   |
 
 ### Phase 2: Polish
 
-| Asset | Description |
-|-------|-------------|
-| **Weapon: Machine Gun** | Mounted gun barrels |
-| **Weapon: Rocket Pod** | Tube launcher |
-| **Debris** | Scattered parts for destruction |
-| **Wreck** | Destroyed vehicle husk |
+| Asset                   | Description                     |
+| ----------------------- | ------------------------------- |
+| **Weapon: Machine Gun** | Mounted gun barrels             |
+| **Weapon: Rocket Pod**  | Tube launcher                   |
+| **Debris**              | Scattered parts for destruction |
+| **Wreck**               | Destroyed vehicle husk          |
 
 ### Model Specifications
 
@@ -79,23 +79,23 @@ Scale:
 
 ### Phase 1: Demo
 
-| Asset | Size | Description |
-|-------|------|-------------|
-| **Arena floor** | 512x512 | Concrete with grid lines |
-| **Arena wall** | 256x256 | Metal/concrete barrier |
-| **Vehicle: Striker** | 256x256 | Red/orange team color |
-| **Vehicle: Bruiser** | 256x256 | Blue/green team color |
+| Asset                | Size    | Description              |
+| -------------------- | ------- | ------------------------ |
+| **Arena floor**      | 512x512 | Concrete with grid lines |
+| **Arena wall**       | 256x256 | Metal/concrete barrier   |
+| **Vehicle: Striker** | 256x256 | Red/orange team color    |
+| **Vehicle: Bruiser** | 256x256 | Blue/green team color    |
 
 ### Phase 2: Polish
 
-| Asset | Size | Description |
-|-------|------|-------------|
-| **Damage overlay** | 256x256 | Scratches, dents, burns |
-| **Fire texture** | 128x128 | Animated fire (sprite sheet) |
-| **Smoke texture** | 128x128 | Particle smoke |
-| **Explosion** | 256x256 | Animated explosion |
-| **Muzzle flash** | 64x64 | Gun firing effect |
-| **Tracer** | 32x32 | Bullet trail |
+| Asset              | Size    | Description                  |
+| ------------------ | ------- | ---------------------------- |
+| **Damage overlay** | 256x256 | Scratches, dents, burns      |
+| **Fire texture**   | 128x128 | Animated fire (sprite sheet) |
+| **Smoke texture**  | 128x128 | Particle smoke               |
+| **Explosion**      | 256x256 | Animated explosion           |
+| **Muzzle flash**   | 64x64   | Gun firing effect            |
+| **Tracer**         | 32x32   | Bullet trail                 |
 
 ### Texture Guidelines
 
@@ -112,20 +112,20 @@ Mip-maps: Generated at load time
 
 ### Phase 1: Demo
 
-| Shader | Purpose |
-|--------|---------|
-| **basic.vert/frag** | Simple textured + lit |
-| **grid.vert/frag** | Arena floor with grid overlay |
-| **solid_color.vert/frag** | Debug/placeholder shapes |
+| Shader                    | Purpose                       |
+| ------------------------- | ----------------------------- |
+| **basic.vert/frag**       | Simple textured + lit         |
+| **grid.vert/frag**        | Arena floor with grid overlay |
+| **solid_color.vert/frag** | Debug/placeholder shapes      |
 
 ### Phase 2: Polish
 
-| Shader | Purpose |
-|--------|---------|
-| **vehicle.vert/frag** | Vehicle with damage states |
-| **fire.vert/frag** | Animated fire effect |
-| **particle.vert/frag** | Particle systems |
-| **ui.vert/frag** | 2D UI elements |
+| Shader                 | Purpose                    |
+| ---------------------- | -------------------------- |
+| **vehicle.vert/frag**  | Vehicle with damage states |
+| **fire.vert/frag**     | Animated fire effect       |
+| **particle.vert/frag** | Particle systems           |
+| **ui.vert/frag**       | 2D UI elements             |
 
 ---
 
@@ -135,23 +135,23 @@ Mip-maps: Generated at load time
 
 Audio not required for core demo but nice to have:
 
-| Sound | Description |
-|-------|-------------|
-| **Engine idle** | Vehicle humming |
-| **Engine rev** | Acceleration |
-| **Collision** | Metal crash |
+| Sound           | Description      |
+| --------------- | ---------------- |
+| **Engine idle** | Vehicle humming  |
+| **Engine rev**  | Acceleration     |
+| **Collision**   | Metal crash      |
 | **Machine gun** | Rapid fire burst |
 
 ### Phase 2: Polish
 
-| Sound | Description |
-|-------|-------------|
-| **Rocket launch** | Whoosh |
-| **Rocket hit** | Explosion |
-| **Tire screech** | Hard turning |
-| **Fire crackle** | Burning vehicle |
-| **Victory fanfare** | Game won |
-| **Ambient** | Arena crowd noise |
+| Sound               | Description       |
+| ------------------- | ----------------- |
+| **Rocket launch**   | Whoosh            |
+| **Rocket hit**      | Explosion         |
+| **Tire screech**    | Hard turning      |
+| **Fire crackle**    | Burning vehicle   |
+| **Victory fanfare** | Game won          |
+| **Ambient**         | Arena crowd noise |
 
 ### Audio Specifications
 
@@ -167,21 +167,21 @@ Normalize to -3dB peak
 
 ### Phase 1: Demo
 
-| Asset | Description |
-|-------|-------------|
-| **Button** | 9-slice button graphic |
-| **Panel** | UI background panel |
-| **Font** | Monospace or typewriter style |
-| **Health bar** | Armor/hull display |
+| Asset          | Description                   |
+| -------------- | ----------------------------- |
+| **Button**     | 9-slice button graphic        |
+| **Panel**      | UI background panel           |
+| **Font**       | Monospace or typewriter style |
+| **Health bar** | Armor/hull display            |
 
 ### Phase 2: Polish
 
-| Asset | Description |
-|-------|-------------|
+| Asset                    | Description            |
+| ------------------------ | ---------------------- |
 | **Vehicle record sheet** | Classic Car Wars style |
-| **Weapon icons** | MG, rocket, etc. |
-| **Status icons** | Fire, disabled, etc. |
-| **Turn indicator** | Current phase display |
+| **Weapon icons**         | MG, rocket, etc.       |
+| **Status icons**         | Fire, disabled, etc.   |
+| **Turn indicator**       | Current phase display  |
 
 ### UI Style Direction
 
@@ -198,13 +198,13 @@ Reference: Original Car Wars record sheets
 
 While developing, use programmer art:
 
-| Final Asset | Placeholder |
-|-------------|-------------|
+| Final Asset   | Placeholder                       |
+| ------------- | --------------------------------- |
 | Vehicle model | Colored box with arrow for facing |
-| Arena floor | Checkered or solid color plane |
-| Weapons | Cylinder primitives |
-| Fire/smoke | Colored billboards |
-| UI buttons | Solid colored rectangles |
+| Arena floor   | Checkered or solid color plane    |
+| Weapons       | Cylinder primitives               |
+| Fire/smoke    | Colored billboards                |
+| UI buttons    | Solid colored rectangles          |
 
 **Rule:** If a placeholder is blocking progress, simplify until you can move forward.
 
@@ -213,23 +213,25 @@ While developing, use programmer art:
 ## Asset Sources
 
 ### Create Ourselves
+
 - Shaders (must be custom)
 - Game data (JSON configs)
 - UI layout
 
 ### Commission or Purchase
+
 - 3D vehicle models (stylized)
 - Texture art (stylized)
 - Sound effects
 
 ### Free/CC Resources (Temporary)
 
-| Source | Type |
-|--------|------|
+| Source          | Type                     |
+| --------------- | ------------------------ |
 | OpenGameArt.org | Models, textures, sounds |
-| Freesound.org | Sound effects |
-| Kenney.nl | Game assets, CC0 |
-| Quaternius | Low-poly 3D models |
+| Freesound.org   | Sound effects            |
+| Kenney.nl       | Game assets, CC0         |
+| Quaternius      | Low-poly 3D models       |
 
 **Note:** Check licenses. Prefer CC0 or CC-BY for commercial use.
 
@@ -240,6 +242,7 @@ While developing, use programmer art:
 To communicate the desired style to artists:
 
 ### Vehicle Style
+
 - Chunky, solid, weighted
 - Visible weapons (not hidden)
 - Bright team colors
@@ -247,6 +250,7 @@ To communicate the desired style to artists:
 - NOT realistic, NOT cartoony
 
 ### Arena Style
+
 - Industrial, concrete
 - Grid visible but integrated
 - Stains, cracks, history
@@ -254,6 +258,7 @@ To communicate the desired style to artists:
 - Lighting: harsh overhead spots
 
 ### Reference Images to Collect
+
 - [ ] Original Car Wars box art
 - [ ] Denis Loubet vehicle illustrations
 - [ ] Gaslands miniatures (modern reference)
@@ -266,18 +271,19 @@ To communicate the desired style to artists:
 
 ### Approach: AI-Assisted + Purchased Assets
 
-| Asset Type | Strategy |
-|------------|----------|
-| **Textures** | AI-generated from book art references, then refined |
-| **Vehicle models** | Purchase/license stylized car models, modify as needed |
-| **Building/arena models** | Purchase basic industrial assets, customize |
-| **UI elements** | AI-assisted based on record sheet scans |
-| **Shaders** | Hand-written (must be custom) |
-| **Game data** | Hand-written JSON |
+| Asset Type                | Strategy                                               |
+| ------------------------- | ------------------------------------------------------ |
+| **Textures**              | AI-generated from book art references, then refined    |
+| **Vehicle models**        | Purchase/license stylized car models, modify as needed |
+| **Building/arena models** | Purchase basic industrial assets, customize            |
+| **UI elements**           | AI-assisted based on record sheet scans                |
+| **Shaders**               | Hand-written (must be custom)                          |
+| **Game data**             | Hand-written JSON                                      |
 
 ### Reference Material
 
 Extract from the Car Wars books in `/books/`:
+
 - Vehicle illustrations for AI texture prompts
 - Arena layouts for level design
 - Record sheets for UI design
@@ -295,6 +301,7 @@ Extract from the Car Wars books in `/books/`:
 ### Model Purchasing
 
 Potential sources:
+
 - **Sketchfab** - Stylized vehicle models
 - **TurboSquid** - Industrial environments
 - **CGTrader** - Various game-ready assets
@@ -309,6 +316,7 @@ Budget: Allocate for 2-3 quality vehicle models and basic arena kit.
 ### Currently Using
 
 #### Kenney Car Kit (CC0) - INSTALLED
+
 - **Location:** `assets/models/vehicles/kenney-car-kit/`
 - **License:** CC0 (Public Domain) - Free for commercial use
 - **Format:** OBJ, FBX, GLB (all formats included)
@@ -325,12 +333,14 @@ Budget: Allocate for 2-3 quality vehicle models and basic arena kit.
 | Tractors | tractor, tractor-police, tractor-shovel |
 
 **Bonus Assets:**
+
 - Multiple wheel variants (default, dark, racing, truck)
-- Debris pieces (doors, tires, plates, spoilers, drivetrains)
+- Debris pieces (doors, tires, plates, spoilers)
 - Traffic props (cones, boxes)
 - Textures included
 
 **Recommended for Car Wars:**
+
 - `sedan-sports` - Good compact armed vehicle base
 - `race-future` - Futuristic variant
 - `truck` / `truck-flat` - Heavy vehicle base
@@ -343,25 +353,26 @@ Budget: Allocate for 2-3 quality vehicle models and basic arena kit.
 
 #### Free Resources (CC0/CC-BY)
 
-| Source | Type | Notes |
-|--------|------|-------|
-| **OpenGameArt.org** | Various | Check individual licenses |
-| **Quaternius** | Low-poly 3D | Free packs, stylized |
-| **Sketchfab (Free)** | Mixed | Filter by license carefully |
-| **Turbosquid (Free)** | Mixed | Check commercial use rights |
+| Source                | Type        | Notes                       |
+| --------------------- | ----------- | --------------------------- |
+| **OpenGameArt.org**   | Various     | Check individual licenses   |
+| **Quaternius**        | Low-poly 3D | Free packs, stylized        |
+| **Sketchfab (Free)**  | Mixed       | Filter by license carefully |
+| **Turbosquid (Free)** | Mixed       | Check commercial use rights |
 
 #### Paid Resources (Higher Quality)
 
-| Source | Type | Price Range | Notes |
-|--------|------|-------------|-------|
-| **Sketchfab Store** | Stylized vehicles | $5-50 | Good low-poly options |
-| **CGTrader** | Game-ready assets | $10-100 | Wide variety |
-| **Unity Asset Store** | Vehicle packs | $15-75 | License allows non-Unity use |
-| **TurboSquid Pro** | Professional | $20-200 | High quality, check license |
+| Source                | Type              | Price Range | Notes                        |
+| --------------------- | ----------------- | ----------- | ---------------------------- |
+| **Sketchfab Store**   | Stylized vehicles | $5-50       | Good low-poly options        |
+| **CGTrader**          | Game-ready assets | $10-100     | Wide variety                 |
+| **Unity Asset Store** | Vehicle packs     | $15-75      | License allows non-Unity use |
+| **TurboSquid Pro**    | Professional      | $20-200     | High quality, check license  |
 
 #### Gaslands/Miniature Style
 
 For authentic Car Wars miniature aesthetic:
+
 - **Thingiverse** - Gaslands STL files (need 3D printing or conversion)
 - **MyMiniFactory** - Combat vehicles STLs
 - **Patreon creators** - Custom vehicle designs

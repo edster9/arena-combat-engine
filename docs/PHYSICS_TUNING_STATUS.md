@@ -6,7 +6,7 @@
 
 ## Matchbox Car Physics Model
 
-Instead of simulating engine/transmission/drivetrain, we apply direct force to the vehicle body:
+Instead of simulating engine physics, we apply direct force to the vehicle body:
 
 ```
 F = mass × target_acceleration × K

@@ -211,6 +211,11 @@ bool physics_vehicle_start_maneuver(PhysicsWorld* pw, int vehicle_id,
 // Start maneuver with parameters (for bend angle, skid distance, etc.)
 bool physics_vehicle_start_maneuver_ex(PhysicsWorld* pw, int vehicle_id,
                                        const ManeuverRequest* request);
+// Start multi-phase turn (all phases execute as one continuous 1.0s animation)
+bool physics_vehicle_start_turn(PhysicsWorld* pw, int vehicle_id,
+                                const int* phase_indices,
+                                const ManeuverRequest* requests,
+                                int num_phases);
 // Cancel active maneuver
 void physics_vehicle_cancel_maneuver(PhysicsWorld* pw, int vehicle_id);
 // Check if autopilot is active

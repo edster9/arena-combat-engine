@@ -91,16 +91,6 @@ static VehicleClass parse_vehicle_class(const char* str) {
     return VEHICLE_CLASS_UNKNOWN;
 }
 
-// Helper: parse drivetrain type from string
-static DrivetrainType parse_drivetrain_type(const char* str) {
-    if (!str) return DRIVETRAIN_RWD;
-    if (strcmp(str, "RWD") == 0) return DRIVETRAIN_RWD;
-    if (strcmp(str, "FWD") == 0) return DRIVETRAIN_FWD;
-    if (strcmp(str, "AWD") == 0) return DRIVETRAIN_AWD;
-    if (strcmp(str, "4WD") == 0) return DRIVETRAIN_4WD;
-    return DRIVETRAIN_RWD;
-}
-
 // Helper: map wheel ID to index (FL=0, FR=1, RL=2, RR=3)
 // Returns -1 if not a standard 4-wheel ID
 static int wheel_id_to_index(const char* id) {
@@ -927,8 +917,6 @@ static PhysicsMode s_active_physics_mode = {
     .name = "Strict Car Wars",
     .type = PHYSICS_MODE_STRICT_CAR_WARS,
     .overrides = {
-        .drivetrain = DRIVETRAIN_AWD,
-        .override_drivetrain = true,
         .tire = { .mu = 2.0f, .reference_radius = 0.35f, .reference_width = 0.2f },
         .override_tire = true,
         .suspension = { .frequency = 3.0f, .damping = 0.8f, .travel = 0.15f },
@@ -941,8 +929,6 @@ bool config_load_physics_mode(const char* filepath, PhysicsMode* out) {
     memset(out, 0, sizeof(*out));
     strcpy(out->name, "Strict Car Wars");
     out->type = PHYSICS_MODE_STRICT_CAR_WARS;
-    out->overrides.drivetrain = DRIVETRAIN_AWD;
-    out->overrides.override_drivetrain = true;
     out->overrides.tire.mu = 2.0f;
     out->overrides.tire.reference_radius = 0.35f;
     out->overrides.tire.reference_width = 0.2f;
@@ -994,7 +980,6 @@ bool config_load_physics_mode(const char* filepath, PhysicsMode* out) {
     if (strcmp(active_mode, "extended") == 0) {
         out->type = PHYSICS_MODE_EXTENDED;
         // Extended mode has no overrides by default
-        out->overrides.override_drivetrain = false;
         out->overrides.override_tire = false;
         out->overrides.override_suspension = false;
     } else {
@@ -1004,16 +989,6 @@ bool config_load_physics_mode(const char* filepath, PhysicsMode* out) {
     // Parse overrides
     cJSON* overrides = cJSON_GetObjectItem(mode_config, "overrides");
     if (overrides) {
-        // Drivetrain override
-        cJSON* dt = cJSON_GetObjectItem(overrides, "drivetrain");
-        if (dt && cJSON_IsString(dt)) {
-            out->overrides.override_drivetrain = true;
-            if (strcmp(dt->valuestring, "AWD") == 0) out->overrides.drivetrain = DRIVETRAIN_AWD;
-            else if (strcmp(dt->valuestring, "FWD") == 0) out->overrides.drivetrain = DRIVETRAIN_FWD;
-            else if (strcmp(dt->valuestring, "RWD") == 0) out->overrides.drivetrain = DRIVETRAIN_RWD;
-            else if (strcmp(dt->valuestring, "4WD") == 0) out->overrides.drivetrain = DRIVETRAIN_4WD;
-        }
-
         // Tire overrides
         cJSON* tire = cJSON_GetObjectItem(overrides, "tire");
         if (tire && cJSON_IsObject(tire)) {
@@ -1032,37 +1007,6 @@ bool config_load_physics_mode(const char* filepath, PhysicsMode* out) {
             out->overrides.suspension.travel = json_get_float(susp, "travel", 0.15f);
         }
 
-        // Transmission overrides
-        cJSON* trans = cJSON_GetObjectItem(overrides, "transmission");
-        if (trans && cJSON_IsObject(trans)) {
-            out->overrides.override_transmission = true;
-
-            // Parse gear ratios array
-            cJSON* gear_ratios = cJSON_GetObjectItem(trans, "gear_ratios");
-            out->overrides.transmission.gear_count = 0;
-            if (gear_ratios && cJSON_IsArray(gear_ratios)) {
-                cJSON* ratio;
-                cJSON_ArrayForEach(ratio, gear_ratios) {
-                    if (out->overrides.transmission.gear_count < MAX_TRANSMISSION_GEARS && cJSON_IsNumber(ratio)) {
-                        out->overrides.transmission.gear_ratios[out->overrides.transmission.gear_count++] = (float)ratio->valuedouble;
-                    }
-                }
-            }
-
-            // Parse reverse ratios array
-            cJSON* reverse_ratios = cJSON_GetObjectItem(trans, "reverse_ratios");
-            out->overrides.transmission.reverse_count = 0;
-            if (reverse_ratios && cJSON_IsArray(reverse_ratios)) {
-                cJSON* ratio;
-                cJSON_ArrayForEach(ratio, reverse_ratios) {
-                    if (out->overrides.transmission.reverse_count < MAX_TRANSMISSION_GEARS && cJSON_IsNumber(ratio)) {
-                        out->overrides.transmission.reverse_ratios[out->overrides.transmission.reverse_count++] = (float)ratio->valuedouble;
-                    }
-                }
-            }
-
-            out->overrides.transmission.differential_ratio = json_get_float(trans, "differential_ratio", 1.29f);
-        }
     }
 
     cJSON_Delete(root);
@@ -1072,10 +1016,6 @@ bool config_load_physics_mode(const char* filepath, PhysicsMode* out) {
 
     printf("Loaded physics mode: %s (%s)\n", out->name,
            out->type == PHYSICS_MODE_STRICT_CAR_WARS ? "strict" : "extended");
-    if (out->overrides.override_drivetrain) {
-        const char* dt_names[] = {"RWD", "FWD", "AWD", "4WD"};
-        printf("  Drivetrain label: %s (informational - physics from axle_power)\n", dt_names[out->overrides.drivetrain]);
-    }
     if (out->overrides.override_tire) {
         printf("  Tire override: mu=%.2f, ref_radius=%.2f\n",
                out->overrides.tire.mu, out->overrides.tire.reference_radius);
@@ -1085,11 +1025,6 @@ bool config_load_physics_mode(const char* filepath, PhysicsMode* out) {
                out->overrides.suspension.frequency,
                out->overrides.suspension.damping,
                out->overrides.suspension.travel);
-    }
-    if (out->overrides.override_transmission) {
-        printf("  Transmission override: %d gears, diff=%.2f\n",
-               out->overrides.transmission.gear_count,
-               out->overrides.transmission.differential_ratio);
     }
 
     return true;

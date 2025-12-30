@@ -338,7 +338,254 @@ bool maneuver_start(ManeuverAutopilot* ap,
     printf("╚══════════════════════════════════════════════════════════════╝\n");
     fflush(stdout);
 
+    // Set up as single-phase turn for compatibility
+    ap->num_phases = 1;
+    ap->current_phase = 0;
+    ap->phases[0].request = *request;
+    ap->phases[0].start_time = 0.0f;
+    ap->phases[0].end_time = 1.0f;
+    ap->phases[0].start_position = current_pos;
+    ap->phases[0].start_heading = current_heading;
+    ap->phases[0].target_position = ap->target_position;
+    ap->phases[0].target_heading = ap->target_heading;
+    ap->phases[0].is_arc_path = ap->is_arc_path;
+    ap->phases[0].arc_radius = ap->arc_radius;
+    ap->phases[0].arc_center = ap->arc_center;
+    ap->phases[0].arc_angle = ap->arc_angle;
+
     return true;
+}
+
+// Calculate target for a single phase within a multi-phase turn
+static void calculate_phase_target(TurnPhase* phase, float speed_ms, float phase_duration) {
+    float dir = (float)phase->request.direction;  // -1 or 1
+
+    // Calculate lateral offset in world coordinates
+    float sin_h = sinf(phase->start_heading);
+    float cos_h = cosf(phase->start_heading);
+
+    // Right vector (perpendicular to heading)
+    float right_x = cos_h;
+    float right_z = -sin_h;
+
+    // Forward vector
+    float fwd_x = sin_h;
+    float fwd_z = cos_h;
+
+    // Forward distance during this phase (based on speed and phase duration)
+    float fwd_dist = speed_ms * phase_duration;
+
+    // Default: linear path (no arc)
+    phase->is_arc_path = false;
+    phase->arc_radius = 0.0f;
+
+    // Calculate lateral displacement based on maneuver type
+    float lateral = 0.0f;
+    float heading_change = 0.0f;
+
+    switch (phase->request.type) {
+        case MANEUVER_NONE:
+        case MANEUVER_STRAIGHT:
+            lateral = 0.0f;
+            heading_change = 0.0f;
+            break;
+
+        case MANEUVER_DRIFT:
+            lateral = CW_QUARTER_INCH * dir;
+            heading_change = 0.0f;
+            break;
+
+        case MANEUVER_STEEP_DRIFT:
+            lateral = CW_HALF_INCH * dir;
+            heading_change = 0.0f;
+            break;
+
+        case MANEUVER_BEND: {
+            float bend_rad = (float)phase->request.bend_angle * (PI / 180.0f);
+            heading_change = bend_rad * dir;
+
+            phase->arc_radius = fwd_dist / bend_rad;
+            phase->arc_angle = bend_rad * dir;
+            phase->is_arc_path = true;
+
+            phase->arc_center.x = phase->start_position.x + right_x * phase->arc_radius * dir;
+            phase->arc_center.y = phase->start_position.y;
+            phase->arc_center.z = phase->start_position.z + right_z * phase->arc_radius * dir;
+
+            float start_angle_from_center = phase->start_heading - (PI / 2.0f) * dir;
+            float end_angle_from_center = start_angle_from_center + phase->arc_angle;
+
+            phase->target_position.x = phase->arc_center.x + phase->arc_radius * sinf(end_angle_from_center);
+            phase->target_position.y = phase->start_position.y;
+            phase->target_position.z = phase->arc_center.z + phase->arc_radius * cosf(end_angle_from_center);
+
+            phase->target_heading = phase->start_heading + heading_change;
+            return;
+        }
+
+        case MANEUVER_BOOTLEGGER:
+            heading_change = PI * dir;
+            lateral = 0.0f;
+            break;
+
+        default:
+            lateral = 0.0f;
+            heading_change = 0.0f;
+            break;
+    }
+
+    // Linear path
+    phase->target_position.x = phase->start_position.x + right_x * lateral + fwd_x * fwd_dist;
+    phase->target_position.y = phase->start_position.y;
+    phase->target_position.z = phase->start_position.z + right_z * lateral + fwd_z * fwd_dist;
+    phase->target_heading = phase->start_heading + heading_change;
+}
+
+bool maneuver_start_turn(ManeuverAutopilot* ap,
+                         const int* phase_indices,
+                         const ManeuverRequest* requests,
+                         int num_phases,
+                         Vec3 current_pos,
+                         float current_heading,
+                         float current_speed_ms) {
+    if (num_phases < 1 || num_phases > MAX_TURN_PHASES) {
+        printf("[Maneuver] Invalid number of phases: %d\n", num_phases);
+        return false;
+    }
+
+    // Validate all maneuvers first
+    for (int i = 0; i < num_phases; i++) {
+        const char* reason = NULL;
+        ManeuverType type = requests[i].type;
+        if (type == MANEUVER_NONE) type = MANEUVER_STRAIGHT;  // Treat NONE as STRAIGHT
+        if (!maneuver_validate(type, current_speed_ms, &reason)) {
+            printf("[Maneuver] Cannot start phase %d (%s): %s\n",
+                   phase_indices[i] + 1, maneuver_get_name(type), reason);
+            return false;
+        }
+    }
+
+    // Initialize autopilot state
+    memset(ap, 0, sizeof(*ap));
+    ap->state = AUTOPILOT_EXECUTING;
+    ap->start_position = current_pos;
+    ap->start_heading = current_heading;
+    ap->start_speed_ms = current_speed_ms;
+    ap->duration = 1.0f;  // Total turn is always 1.0 second
+    ap->elapsed = 0.0f;
+    ap->progress = 0.0f;
+    ap->num_phases = num_phases;
+    ap->current_phase = 0;
+
+    // Calculate time slice per phase
+    float phase_duration = 1.0f / (float)num_phases;
+
+    // Set up each phase
+    Vec3 phase_start_pos = current_pos;
+    float phase_start_heading = current_heading;
+
+    printf("\n");
+    printf("╔══════════════════════════════════════════════════════════════╗\n");
+    printf("║            MULTI-PHASE TURN START (%d phases)                 ║\n", num_phases);
+    printf("╠══════════════════════════════════════════════════════════════╣\n");
+    printf("║ Speed: %.1f mph | Total Duration: 1.0s                       \n",
+           current_speed_ms * MS_TO_MPH);
+    printf("╠══════════════════════════════════════════════════════════════╣\n");
+
+    for (int i = 0; i < num_phases; i++) {
+        TurnPhase* phase = &ap->phases[i];
+
+        // Copy request (treat NONE as STRAIGHT)
+        phase->request = requests[i];
+        if (phase->request.type == MANEUVER_NONE) {
+            phase->request.type = MANEUVER_STRAIGHT;
+        }
+
+        // Set timing
+        phase->start_time = (float)i * phase_duration;
+        phase->end_time = (float)(i + 1) * phase_duration;
+
+        // Set start position/heading (from previous phase's end, or initial)
+        phase->start_position = phase_start_pos;
+        phase->start_heading = phase_start_heading;
+
+        // Calculate target for this phase
+        calculate_phase_target(phase, current_speed_ms, phase_duration);
+
+        // Debug output
+        const char* dir_str = (phase->request.type == MANEUVER_STRAIGHT) ? "-" :
+                              (phase->request.direction == MANEUVER_LEFT ? "L" : "R");
+        printf("║ P%d: %-12s %s | %.2fs-%.2fs | fwd=%.1fm               \n",
+               phase_indices[i] + 1,
+               maneuver_get_name(phase->request.type),
+               dir_str,
+               phase->start_time, phase->end_time,
+               current_speed_ms * phase_duration);
+
+        // Update for next phase (chain positions)
+        phase_start_pos = phase->target_position;
+        phase_start_heading = phase->target_heading;
+    }
+
+    printf("╠══════════════════════════════════════════════════════════════╣\n");
+    printf("║ START:  pos=(%.1f, %.1f, %.1f) heading=%.1f°               \n",
+           current_pos.x, current_pos.y, current_pos.z,
+           current_heading * 180.0f / PI);
+    printf("║ TARGET: pos=(%.1f, %.1f, %.1f) heading=%.1f°               \n",
+           phase_start_pos.x, phase_start_pos.y, phase_start_pos.z,
+           phase_start_heading * 180.0f / PI);
+    printf("╚══════════════════════════════════════════════════════════════╝\n");
+    fflush(stdout);
+
+    // Set up initial state from first phase
+    ap->request = ap->phases[0].request;
+    ap->target_position = ap->phases[num_phases - 1].target_position;
+    ap->target_heading = ap->phases[num_phases - 1].target_heading;
+    ap->is_arc_path = ap->phases[0].is_arc_path;
+    ap->arc_radius = ap->phases[0].arc_radius;
+    ap->arc_center = ap->phases[0].arc_center;
+    ap->arc_angle = ap->phases[0].arc_angle;
+
+    // Initialize current pose
+    ap->current_pose.position = current_pos;
+    ap->current_pose.heading = current_heading;
+
+    return true;
+}
+
+// Interpolate within a single phase
+static void interpolate_phase(ManeuverAutopilot* ap, const TurnPhase* phase, float local_t) {
+    if (phase->is_arc_path) {
+        // ARC INTERPOLATION for bends
+        float dir = (float)phase->request.direction;
+
+        // Angle from center at start (perpendicular to heading, pointing away)
+        float start_angle_from_center = phase->start_heading - (PI / 2.0f) * dir;
+
+        // Current angle around the arc (interpolated)
+        float current_arc_angle = phase->arc_angle * local_t;
+        float current_angle_from_center = start_angle_from_center + current_arc_angle;
+
+        // Position on arc
+        ap->current_pose.position.x = phase->arc_center.x + phase->arc_radius * sinf(current_angle_from_center);
+        ap->current_pose.position.y = phase->start_position.y;
+        ap->current_pose.position.z = phase->arc_center.z + phase->arc_radius * cosf(current_angle_from_center);
+
+        // Heading is tangent to arc
+        ap->current_pose.heading = phase->start_heading + current_arc_angle;
+    } else {
+        // LINEAR INTERPOLATION for drifts and straight
+        ap->current_pose.position = vec3_lerp(phase->start_position, phase->target_position, local_t);
+        ap->current_pose.heading = angle_lerp(phase->start_heading, phase->target_heading, local_t);
+
+        // Add realistic heading wobble for drift maneuvers
+        if (phase->request.type == MANEUVER_DRIFT || phase->request.type == MANEUVER_STEEP_DRIFT) {
+            float wobble_amount = 8.0f * (PI / 180.0f);  // 8 degrees max
+            float wobble = sinf(local_t * PI) * wobble_amount;
+            wobble *= (float)phase->request.direction;
+            ap->current_pose.heading += wobble;
+        }
+    }
 }
 
 ManeuverPose maneuver_update(ManeuverAutopilot* ap,
@@ -360,51 +607,39 @@ ManeuverPose maneuver_update(ManeuverAutopilot* ap,
         ap->progress = 1.0f;
     }
 
-    // Use LINEAR interpolation for position (constant velocity)
-    // The car is already moving at speed - don't accelerate/decelerate
-    float t = ap->progress;
-
-    // Interpolate position and heading based on path type
-    if (ap->is_arc_path) {
-        // ARC INTERPOLATION for bends
-        // The car follows a circular arc around arc_center
-        float dir = (float)ap->request.direction;
-
-        // Angle from center at start (perpendicular to heading, pointing away)
-        float start_angle_from_center = ap->start_heading - (PI / 2.0f) * dir;
-
-        // Current angle around the arc (interpolated)
-        float current_arc_angle = ap->arc_angle * t;
-        float current_angle_from_center = start_angle_from_center + current_arc_angle;
-
-        // Position on arc
-        ap->current_pose.position.x = ap->arc_center.x + ap->arc_radius * sinf(current_angle_from_center);
-        ap->current_pose.position.y = ap->start_position.y;
-        ap->current_pose.position.z = ap->arc_center.z + ap->arc_radius * cosf(current_angle_from_center);
-
-        // Heading is tangent to arc (perpendicular to radius, in direction of travel)
-        // For right turn: heading = angle_from_center + 90° = angle_from_center + PI/2
-        // For left turn: heading = angle_from_center - 90° = angle_from_center - PI/2
-        ap->current_pose.heading = ap->start_heading + current_arc_angle;
-    } else {
-        // LINEAR INTERPOLATION for drifts
-        ap->current_pose.position = vec3_lerp(ap->start_position, ap->target_position, t);
-        ap->current_pose.heading = angle_lerp(ap->start_heading, ap->target_heading, t);
-
-        // Add realistic heading wobble for drift maneuvers
-        // Car's nose dips into the drift direction, then straightens out
-        if (ap->request.type == MANEUVER_DRIFT || ap->request.type == MANEUVER_STEEP_DRIFT) {
-            // Sine wave peaks at 50% progress, returns to 0 at 100%
-            // This creates a smooth "nose-in, straighten-out" motion
-            float wobble_amount = 8.0f * (PI / 180.0f);  // 8 degrees max
-            float wobble = sinf(ap->progress * PI) * wobble_amount;
-            // Direction: negative wobble for left drift, positive for right
-            wobble *= (float)ap->request.direction;  // -1 for left, +1 for right
-            ap->current_pose.heading += wobble;
+    // Find which phase we're in based on progress
+    int phase_idx = 0;
+    for (int i = 0; i < ap->num_phases; i++) {
+        if (ap->progress >= ap->phases[i].start_time && ap->progress <= ap->phases[i].end_time) {
+            phase_idx = i;
+            break;
         }
+        // Handle edge case where we're past this phase
+        if (ap->progress > ap->phases[i].end_time && i < ap->num_phases - 1) {
+            continue;
+        }
+        phase_idx = i;
     }
 
-    // Calculate displacement for debug
+    // Track phase transitions for debug output
+    if (phase_idx != ap->current_phase) {
+        printf("[Turn] Phase transition: %d -> %d at %.0f%%\n",
+               ap->current_phase + 1, phase_idx + 1, ap->progress * 100.0f);
+        ap->current_phase = phase_idx;
+    }
+
+    const TurnPhase* phase = &ap->phases[phase_idx];
+
+    // Calculate local progress within this phase (0.0 to 1.0)
+    float phase_duration = phase->end_time - phase->start_time;
+    float local_t = (ap->progress - phase->start_time) / phase_duration;
+    if (local_t < 0.0f) local_t = 0.0f;
+    if (local_t > 1.0f) local_t = 1.0f;
+
+    // Interpolate within the current phase
+    interpolate_phase(ap, phase, local_t);
+
+    // Calculate displacement for debug (from turn start, not phase start)
     float dx = ap->current_pose.position.x - ap->start_position.x;
     float dz = ap->current_pose.position.z - ap->start_position.z;
     float sin_h = sinf(ap->start_heading);
@@ -416,11 +651,20 @@ ManeuverPose maneuver_update(ManeuverAutopilot* ap,
     static int last_quarter = -1;
     int quarter = (int)(ap->progress * 4.0f);
     if (quarter != last_quarter && quarter <= 4) {
-        printf("[Kinematic] %.0f%% | pos=(%.1f, %.1f) | heading=%.1f° | lat=%.2fm\n",
-               ap->progress * 100.0f,
-               ap->current_pose.position.x, ap->current_pose.position.z,
-               ap->current_pose.heading * 180.0f / PI,
-               ap->lateral_displacement);
+        if (ap->num_phases > 1) {
+            printf("[Turn] %.0f%% (P%d) | pos=(%.1f, %.1f) | heading=%.1f° | lat=%.2fm\n",
+                   ap->progress * 100.0f,
+                   phase_idx + 1,
+                   ap->current_pose.position.x, ap->current_pose.position.z,
+                   ap->current_pose.heading * 180.0f / PI,
+                   ap->lateral_displacement);
+        } else {
+            printf("[Kinematic] %.0f%% | pos=(%.1f, %.1f) | heading=%.1f° | lat=%.2fm\n",
+                   ap->progress * 100.0f,
+                   ap->current_pose.position.x, ap->current_pose.position.z,
+                   ap->current_pose.heading * 180.0f / PI,
+                   ap->lateral_displacement);
+        }
         fflush(stdout);
         last_quarter = quarter;
     }
@@ -429,15 +673,20 @@ ManeuverPose maneuver_update(ManeuverAutopilot* ap,
     if (ap->progress >= 1.0f) {
         ap->state = AUTOPILOT_FINISHED;
         *out_complete = true;
-        last_quarter = -1;  // Reset for next maneuver
+        last_quarter = -1;  // Reset for next turn
 
-        // Final position exactly at target
-        ap->current_pose.position = ap->target_position;
-        ap->current_pose.heading = ap->target_heading;
+        // Final position exactly at target (last phase's target)
+        const TurnPhase* last_phase = &ap->phases[ap->num_phases - 1];
+        ap->current_pose.position = last_phase->target_position;
+        ap->current_pose.heading = last_phase->target_heading;
 
         printf("\n");
         printf("╔══════════════════════════════════════════════════════════════╗\n");
-        printf("║            KINEMATIC MANEUVER COMPLETE                       ║\n");
+        if (ap->num_phases > 1) {
+            printf("║            MULTI-PHASE TURN COMPLETE (%d phases)              ║\n", ap->num_phases);
+        } else {
+            printf("║            KINEMATIC MANEUVER COMPLETE                       ║\n");
+        }
         printf("╠══════════════════════════════════════════════════════════════╣\n");
         printf("║ Duration: %.2fs                                             \n",
                ap->elapsed);

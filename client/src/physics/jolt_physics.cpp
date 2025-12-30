@@ -1771,6 +1771,9 @@ bool physics_vehicle_start_maneuver_ex(PhysicsWorld* pw, int vehicle_id,
     bool success = maneuver_start(&v->autopilot, request, currentPos, currentHeading, speed);
 
     if (success) {
+        // Reset handling status at start of new turn
+        handling_reset_turn(&v->handling);
+
         // Apply handling difficulty
         int difficulty = maneuver_get_difficulty(request->type, request->direction,
                                                   request->bend_angle > 0 ? request->bend_angle : request->skid_distance);
@@ -1782,6 +1785,64 @@ bool physics_vehicle_start_maneuver_ex(PhysicsWorld* pw, int vehicle_id,
             printf("[Maneuver] Control roll FAILED - crash table needed (not implemented)\n");
             fflush(stdout);
             // Continue with maneuver anyway for testing
+        }
+    }
+
+    return success;
+}
+
+bool physics_vehicle_start_turn(PhysicsWorld* pw, int vehicle_id,
+                                const int* phase_indices,
+                                const ManeuverRequest* requests,
+                                int num_phases)
+{
+    if (!pw || !pw->impl) return false;
+    if (vehicle_id < 0 || vehicle_id >= MAX_PHYSICS_VEHICLES) return false;
+    if (num_phases < 1 || num_phases > MAX_TURN_PHASES) return false;
+
+    PhysicsVehicle* v = &pw->vehicles[vehicle_id];
+    if (!v->active || !v->impl) return false;
+
+    auto* impl = pw->impl;
+    auto* vimpl = v->impl;
+    BodyInterface& bodyInterface = impl->physicsSystem->GetBodyInterface();
+
+    // Get current vehicle state
+    RVec3 pos = bodyInterface.GetPosition(vimpl->bodyId);
+    JPH::Quat rot = bodyInterface.GetRotation(vimpl->bodyId);
+    JPH::Vec3 vel = bodyInterface.GetLinearVelocity(vimpl->bodyId);
+
+    ::Vec3 currentPos = { (float)pos.GetX(), (float)pos.GetY(), (float)pos.GetZ() };
+    float speed = vel.Length();
+
+    // Extract heading from quaternion
+    JPH::Vec3 fwd = rot.RotateAxisZ();
+    float currentHeading = atan2f(fwd.GetX(), fwd.GetZ());
+
+    // Start the multi-phase turn
+    bool success = maneuver_start_turn(&v->autopilot, phase_indices, requests,
+                                        num_phases, currentPos, currentHeading, speed);
+
+    if (success) {
+        // Reset handling status at start of new turn
+        handling_reset_turn(&v->handling);
+
+        // Apply handling difficulty for each phase
+        for (int i = 0; i < num_phases; i++) {
+            ManeuverType type = requests[i].type;
+            if (type == MANEUVER_NONE) type = MANEUVER_STRAIGHT;
+
+            int difficulty = maneuver_get_difficulty(type, requests[i].direction,
+                requests[i].bend_angle > 0 ? requests[i].bend_angle : requests[i].skid_distance);
+
+            if (difficulty > 0) {
+                ControlResult result = handling_apply_maneuver(&v->handling, difficulty);
+                if (result == CONTROL_ROLL_FAILED) {
+                    printf("[Turn] P%d control roll FAILED - crash table needed\n", phase_indices[i] + 1);
+                    fflush(stdout);
+                    // Continue anyway for testing
+                }
+            }
         }
     }
 

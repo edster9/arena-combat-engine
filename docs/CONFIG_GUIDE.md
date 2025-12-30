@@ -373,23 +373,16 @@ Full vehicle configuration file:
             "name": "front",
             "wheels": ["FL", "FR"],
             "steering": true,
-            "driven": false,
+            "axle_power": 0.0,
             "max_steer_angle": 0.6
         },
         {
             "name": "rear",
             "wheels": ["RL", "RR"],
             "steering": false,
-            "driven": true
+            "axle_power": 1.0
         }
-    ],
-
-    "drivetrain": {
-        "type": "RWD",
-        "motor_force": 15000,
-        "brake_force": 25000,
-        "max_speed": 80
-    }
+    ]
 }
 ```
 
@@ -417,14 +410,16 @@ Standard wheel IDs:
 - `RL` = Rear Left
 - `RR` = Rear Right
 
-### Drivetrain Types
+### Axle Power Distribution
 
-| Type | Description |
-|------|-------------|
-| `RWD` | Rear Wheel Drive - power to rear wheels |
-| `FWD` | Front Wheel Drive - power to front wheels |
-| `AWD` | All Wheel Drive - power to all wheels |
-| `4WD` | Four Wheel Drive (with transfer case) |
+Power distribution is controlled per-axle using `axle_power` (0.0 to 1.0):
+
+| Configuration | Front `axle_power` | Rear `axle_power` | Description |
+|---------------|--------------------|--------------------|-------------|
+| RWD | 0.0 | 1.0 | Rear Wheel Drive |
+| FWD | 1.0 | 0.0 | Front Wheel Drive |
+| AWD | 0.5 | 0.5 | All Wheel Drive (50/50) |
+| AWD Rear-Bias | 0.3 | 0.7 | Rear-biased AWD |
 
 ### Steering Angle Reference
 

@@ -86,10 +86,32 @@ typedef struct {
     float heading;      // Radians
 } ManeuverPose;
 
+// Maximum phases in a turn (5 for 50+ mph)
+#define MAX_TURN_PHASES 5
+
+// Single phase within a multi-phase turn
+typedef struct {
+    ManeuverRequest request;      // What maneuver for this phase
+    float start_time;             // When this phase starts (0.0 to 1.0)
+    float end_time;               // When this phase ends (0.0 to 1.0)
+
+    // Calculated path for this phase
+    Vec3 start_position;
+    float start_heading;
+    Vec3 target_position;
+    float target_heading;
+
+    // Arc path parameters (for BEND maneuvers)
+    bool is_arc_path;
+    float arc_radius;
+    Vec3 arc_center;
+    float arc_angle;              // Signed angle to sweep
+} TurnPhase;
+
 // Autopilot controller state
 typedef struct {
     AutopilotState state;
-    ManeuverRequest request;
+    ManeuverRequest request;      // Current phase's request (for single-phase compat)
 
     // Start state (captured when maneuver begins)
     Vec3 start_position;
@@ -100,15 +122,15 @@ typedef struct {
     Vec3 target_position;
     float target_heading;         // Radians
 
-    // Arc path parameters (for BEND maneuvers)
+    // Arc path parameters (for BEND maneuvers) - current phase
     bool is_arc_path;             // True if following arc instead of linear
     float arc_radius;             // Radius of turn circle (meters)
     Vec3 arc_center;              // Center of turn circle (world coords)
     float arc_angle;              // Total angle to sweep (radians, signed)
 
     // Timing
-    float elapsed;                // Seconds since maneuver started
-    float duration;               // Total maneuver duration
+    float elapsed;                // Seconds since turn started
+    float duration;               // Total turn duration (always 1.0s)
     float progress;               // 0.0 to 1.0 normalized time
 
     // Current interpolated pose (updated each frame)
@@ -117,6 +139,11 @@ typedef struct {
     // Debug info
     float lateral_displacement;   // Current lateral offset from start
     float forward_displacement;   // Current forward offset from start
+
+    // Multi-phase turn support
+    int num_phases;               // Number of phases in this turn (1-5)
+    int current_phase;            // Which phase we're currently executing (0-based)
+    TurnPhase phases[MAX_TURN_PHASES];  // Phase data array
 } ManeuverAutopilot;
 
 // Validate if a maneuver can be performed at current speed
@@ -126,13 +153,26 @@ bool maneuver_validate(ManeuverType type, float speed_ms, const char** out_reaso
 // Calculate the difficulty (D value) for a maneuver
 int maneuver_get_difficulty(ManeuverType type, ManeuverDirection dir, int param);
 
-// Start a maneuver - calculates path and activates kinematic animation
+// Start a single-phase maneuver - calculates path and activates kinematic animation
 // Returns false if maneuver not allowed at current speed
 bool maneuver_start(ManeuverAutopilot* ap,
                     const ManeuverRequest* request,
                     Vec3 current_pos,
                     float current_heading,
                     float current_speed_ms);
+
+// Start a multi-phase turn - executes all phases as one continuous 1.0s animation
+// phase_indices: which Car Wars phases are active (e.g., {1, 3} for P2 and P4 at 20 mph)
+// requests: maneuver request for each active phase
+// num_phases: number of active phases (1-5)
+// Returns false if any phase validation fails
+bool maneuver_start_turn(ManeuverAutopilot* ap,
+                         const int* phase_indices,
+                         const ManeuverRequest* requests,
+                         int num_phases,
+                         Vec3 current_pos,
+                         float current_heading,
+                         float current_speed_ms);
 
 // Update autopilot - called each physics frame
 // Calculates interpolated pose for this frame

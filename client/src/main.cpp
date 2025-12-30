@@ -792,6 +792,11 @@ int main(int argc, char* argv[]) {
                     physics_create_vehicle(&physics, spawn_positions[i], spawn_rotations[i], &vehicle_cfg);
                 }
                 printf("Vehicle config reloaded, all vehicles recreated\n");
+
+                // Unpause physics so vehicles can settle (they spawn at Y=0, need physics to push up)
+                if (physics_is_paused(&physics)) {
+                    physics_unpause(&physics);
+                }
             } else {
                 fprintf(stderr, "RELOAD FAILED: Vehicle config has errors - keeping current vehicles\n");
             }
@@ -1007,38 +1012,50 @@ int main(int argc, char* argv[]) {
                 int exec_phys_id = (selected && selected->id < MAX_ENTITIES)
                                    ? entity_to_physics[selected->id] : -1;
 
-                // For Phase 1: Only allow 10 mph range (P3 only)
-                if (planning.active_phases_mask != 0b00100) {
-                    printf("[Turn] Speed %d mph not supported yet - only 10 mph range works\n",
+                // All speeds supported: 10-50+ mph
+                // Valid phase masks: any with at least one bit set
+                bool supported = (planning.active_phases_mask != 0);
+
+                if (!supported) {
+                    printf("[Turn] Speed %d mph - no active phases\n",
                            planning.snapshot_speed);
                     ui_clicked = true;
                 } else if (exec_phys_id < 0) {
                     printf("[Turn] No vehicle selected!\n");
                     ui_clicked = true;
                 } else {
-                    // Execute P3 maneuver (index 2)
-                    ManeuverType m = planning.phase_maneuver[2];
+                    // Generic multi-phase turn execution for all speeds
+                    // Build phase_indices[] and requests[] from active mask
+                    int phase_indices[5];
+                    ManeuverRequest requests[5];
+                    int num_phases = 0;
 
-                    // Treat MANEUVER_NONE as STRAIGHT (default when no selection made)
-                    if (m == MANEUVER_NONE) {
-                        m = MANEUVER_STRAIGHT;
+                    for (int i = 0; i < 5; i++) {
+                        if ((planning.active_phases_mask >> i) & 1) {
+                            phase_indices[num_phases] = i;
+
+                            requests[num_phases].type = planning.phase_maneuver[i];
+                            if (requests[num_phases].type == MANEUVER_NONE) {
+                                requests[num_phases].type = MANEUVER_STRAIGHT;
+                            }
+                            requests[num_phases].direction = planning.phase_direction[i];
+                            requests[num_phases].bend_angle = planning.phase_bend_angle[i];
+                            requests[num_phases].skid_distance = 0;
+
+                            num_phases++;
+                        }
                     }
 
-                    // Execute the declared maneuver through kinematic system
-                    ManeuverRequest req;
-                    req.type = m;
-                    req.direction = planning.phase_direction[2];
-                    req.bend_angle = planning.phase_bend_angle[2];
-                    req.skid_distance = 0;
-
-                    if (physics_vehicle_start_maneuver_ex(&physics, exec_phys_id, &req)) {
+                    if (num_phases > 0 && physics_vehicle_start_turn(&physics, exec_phys_id,
+                                                                      phase_indices, requests, num_phases)) {
                         physics_unpause(&physics);
-                        printf("[Turn] Executing P3: %s", maneuver_get_name(m));
-                        if (m != MANEUVER_STRAIGHT) {
-                            printf(" %s", req.direction == MANEUVER_LEFT ? "LEFT" : "RIGHT");
-                        }
-                        if (m == MANEUVER_BEND) {
-                            printf(" %d°", req.bend_angle);
+
+                        // Log what we're executing
+                        printf("[Turn] Executing %d mph turn (%d phases):",
+                               planning.snapshot_speed, num_phases);
+                        for (int p = 0; p < num_phases; p++) {
+                            printf(" P%d=%s", phase_indices[p] + 1,
+                                   maneuver_get_name(requests[p].type));
                         }
                         printf("\n");
                     }
@@ -1592,9 +1609,9 @@ int main(int argc, char* argv[]) {
             // Execute button label (moved down to Y=465)
             {
                 const char* exec_text = "EXECUTE TURN";
-                // Show warning if speed not supported
-                if (physics_is_paused(&physics) && planning.active_phases_mask != 0b00100 && planning.snapshot_speed > 0) {
-                    exec_text = "10 MPH ONLY";
+                // Show warning only if too slow (no active phases)
+                if (physics_is_paused(&physics) && planning.active_phases_mask == 0 && planning.snapshot_speed > 0) {
+                    exec_text = "TOO SLOW";
                 }
                 text_draw_centered(&text_renderer, exec_text,
                     ui_rect(platform.width - 315, 465, 300, 50), UI_COLOR_WHITE);
@@ -1613,17 +1630,27 @@ int main(int argc, char* argv[]) {
                     }
                 }
 
-                char status_text[160];
+                // Status bar with fixed column positions to prevent jitter
+                // Each column drawn at fixed X coordinate
+                int status_y = platform.height - 42;
+                char col_buf[32];
+
                 if (game_mode == MODE_FREESTYLE) {
-                    // Freestyle: show real-time velocity and cruise control status
+                    // Column X positions for freestyle mode
+                    // Wider spacing to accommodate cruise control text "100 mph CR:100"
+                    int col_mode = 20;
+                    int col_team = 50;
+                    int col_speed = 100;
+                    int col_hs = 270;
+                    int col_steer = 370;
+                    int col_force = 530;
+
                     float vel = 0.0f;
                     if (sel && sel->id < MAX_ENTITIES) {
                         vel = car_physics[sel->id].velocity;
                     }
-                    // Convert to mph (velocity * 2.237 for m/s to mph)
                     int display_mph = (int)(fabsf(vel) * 2.237f);
 
-                    // Get lateral velocity for drift detection (sideways speed)
                     float lateral_ms = 0.0f;
                     float force_n = 0.0f;
                     float traction = 0.0f;
@@ -1632,73 +1659,83 @@ int main(int argc, char* argv[]) {
                         physics_vehicle_get_traction_info(&physics, phys_id, &force_n, &traction);
                     }
                     float lateral_mph = lateral_ms * 2.237f;
-
-                    // Drift indicator based on lateral velocity (sideways mph)
-                    // < 2 mph = normal, 2-5 mph = minor, 5-15 mph = DRIFT, > 15 mph = SPIN!
-                    char drift_str[16] = "";
-                    if (lateral_mph >= 15.0f) {
-                        snprintf(drift_str, sizeof(drift_str), " SPIN!");
-                    } else if (lateral_mph >= 5.0f) {
-                        snprintf(drift_str, sizeof(drift_str), " DRIFT");
-                    } else if (lateral_mph >= 2.0f) {
-                        snprintf(drift_str, sizeof(drift_str), " ~%.0f", lateral_mph);  // Show sideways mph
-                    }
-
-                    // Steering level display (Car Wars D ratings)
-                    char steer_str[8];
-                    if (discrete_steering) {
-                        if (steering_level == 0) {
-                            snprintf(steer_str, sizeof(steer_str), "0");
-                        } else {
-                            // Show as "L-D2" or "R-D1" etc (direction + difficulty)
-                            int d_level = steering_level < 0 ? -steering_level : steering_level;
-                            char dir = steering_level < 0 ? 'L' : 'R';
-                            snprintf(steer_str, sizeof(steer_str), "%c-D%d", dir, d_level);
-                        }
-                    } else {
-                        snprintf(steer_str, sizeof(steer_str), "~");  // Gradual mode indicator
-                    }
-
-                    // Traction display: always show force and wheels in contact (0-4)
-                    char traction_str[32] = "";
                     int wheels_contact = (int)(traction * 4.0f + 0.5f);
-                    snprintf(traction_str, sizeof(traction_str), "  |  F:%.0fN (%d/4)",
-                             force_n, wheels_contact);
 
-                    // Handling status display: HS/HC
-                    char handling_str[16] = "";
                     int hs = 0, hc = 0;
                     if (phys_id >= 0) {
                         physics_vehicle_get_handling(&physics, phys_id, &hs, &hc);
-                        snprintf(handling_str, sizeof(handling_str), "  |  HS:%d/%d", hs, hc);
                     }
 
-                    // Check cruise control status
+                    // Draw each column at its fixed position
+                    text_draw(&text_renderer, "[F]", col_mode, status_y, UI_COLOR_WHITE);
+                    text_draw(&text_renderer, team_name, col_team, status_y, UI_COLOR_WHITE);
+
                     bool cruise_on = phys_id >= 0 && physics_vehicle_cruise_active(&physics, phys_id);
                     if (cruise_on) {
                         float target_ms = physics_vehicle_cruise_target(&physics, phys_id);
                         int target_mph = (int)(target_ms * 2.237f);
-                        snprintf(status_text, sizeof(status_text),
-                            "[F] %s  |  %d mph  |  CRUISE: %d%s  |  Steer: %s%s%s",
-                            team_name, display_mph, target_mph, handling_str, steer_str, drift_str, traction_str);
+                        snprintf(col_buf, sizeof(col_buf), "%3d mph CR:%3d", display_mph, target_mph);
                     } else {
-                        snprintf(status_text, sizeof(status_text),
-                            "[F] %s  |  %d mph%s  |  Steer: %s%s%s",
-                            team_name, display_mph, handling_str, steer_str, drift_str, traction_str);
+                        snprintf(col_buf, sizeof(col_buf), "%3d mph", display_mph);
                     }
+                    text_draw(&text_renderer, col_buf, col_speed, status_y, UI_COLOR_WHITE);
+
+                    snprintf(col_buf, sizeof(col_buf), "HS:%2d/%d", hs, hc);
+                    text_draw(&text_renderer, col_buf, col_hs, status_y, UI_COLOR_WHITE);
+
+                    // Steering with optional drift indicator
+                    if (discrete_steering) {
+                        if (steering_level == 0) {
+                            snprintf(col_buf, sizeof(col_buf), "Steer: 0");
+                        } else {
+                            int d_level = steering_level < 0 ? -steering_level : steering_level;
+                            char dir = steering_level < 0 ? 'L' : 'R';
+                            snprintf(col_buf, sizeof(col_buf), "Steer: %c-D%d", dir, d_level);
+                        }
+                    } else {
+                        snprintf(col_buf, sizeof(col_buf), "Steer: ~");
+                    }
+                    if (lateral_mph >= 15.0f) {
+                        strncat(col_buf, " SPIN!", sizeof(col_buf) - strlen(col_buf) - 1);
+                    } else if (lateral_mph >= 5.0f) {
+                        strncat(col_buf, " DRIFT", sizeof(col_buf) - strlen(col_buf) - 1);
+                    }
+                    text_draw(&text_renderer, col_buf, col_steer, status_y, UI_COLOR_WHITE);
+
+                    snprintf(col_buf, sizeof(col_buf), "F:%6.0fN %d/4", force_n, wheels_contact);
+                    text_draw(&text_renderer, col_buf, col_force, status_y, UI_COLOR_WHITE);
+
                 } else {
-                    // Turn-based: show planning info with handling
+                    // Column X positions for turn-based mode
+                    // Match freestyle spacing for consistency
+                    int col_mode = 20;
+                    int col_team = 50;
+                    int col_speed = 100;
+                    int col_hs = 270;
+                    int col_next = 370;
+                    int col_phase = 500;
+
                     const char* speed_names[] = {"BRAKE", "HOLD", "ACCEL"};
                     int hs = 0, hc = 0;
                     if (phys_id >= 0) {
                         physics_vehicle_get_handling(&physics, phys_id, &hs, &hc);
                     }
-                    snprintf(status_text, sizeof(status_text),
-                        "[T] %s  |  %d mph  |  HS:%d/%d  |  Next: %s  |  Phase: P%d",
-                        team_name, planning.current_speed, hs, hc,
-                        speed_names[planning.speed_choice], planning.selected_phase + 1);
+
+                    text_draw(&text_renderer, "[T]", col_mode, status_y, UI_COLOR_WHITE);
+                    text_draw(&text_renderer, team_name, col_team, status_y, UI_COLOR_WHITE);
+
+                    snprintf(col_buf, sizeof(col_buf), "%3d mph", planning.current_speed);
+                    text_draw(&text_renderer, col_buf, col_speed, status_y, UI_COLOR_WHITE);
+
+                    snprintf(col_buf, sizeof(col_buf), "HS:%2d/%d", hs, hc);
+                    text_draw(&text_renderer, col_buf, col_hs, status_y, UI_COLOR_WHITE);
+
+                    snprintf(col_buf, sizeof(col_buf), "Next: %s", speed_names[planning.speed_choice]);
+                    text_draw(&text_renderer, col_buf, col_next, status_y, UI_COLOR_WHITE);
+
+                    snprintf(col_buf, sizeof(col_buf), "Phase: P%d", planning.selected_phase + 1);
+                    text_draw(&text_renderer, col_buf, col_phase, status_y, UI_COLOR_WHITE);
                 }
-                text_draw(&text_renderer, status_text, 20, platform.height - 42, UI_COLOR_WHITE);
             }
 
             text_renderer_end(&text_renderer);
