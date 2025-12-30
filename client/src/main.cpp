@@ -46,11 +46,10 @@
 // Car dimensions (for model scaling and ghost preview)
 #define CAR_LENGTH 3.5f
 
-// Game modes
-typedef enum {
-    MODE_TURN_BASED = 0,
-    MODE_FREESTYLE = 1
-} GameMode;
+// Game mode is determined by physics pause state:
+// - physics.paused = true  → Turn Based mode (planning turns)
+// - physics.paused = false → Freestyle mode (free driving)
+// Toggle with TAB key
 
 // Planning UI state (for turn-based mode)
 typedef enum {
@@ -589,8 +588,10 @@ int main(int argc, char* argv[]) {
     float chase_azimuth = 0.0f;         // Horizontal orbit angle (radians)
     float chase_elevation = 0.5f;       // Vertical orbit angle (radians, 0=level, PI/2=overhead)
 
-    // Game mode (F to toggle)
-    GameMode game_mode = MODE_FREESTYLE;  // Start in freestyle for quick testing
+    // Game mode is now unified with physics pause state:
+    // - physics.paused = true  → Turn Based mode
+    // - physics.paused = false → Freestyle mode
+    // Toggle with TAB key (F key removed)
 
     // Steering state (accessible for status bar display)
     bool discrete_steering = false;  // Start in gradual mode (easier to drive)
@@ -810,16 +811,8 @@ int main(int argc, char* argv[]) {
             printf("Scene config reloaded (arena/obstacles - restart for full effect)\n");
         }
 
-        // Toggle game mode with F (requires selected vehicle)
-        if (input.keys_pressed[KEY_F]) {
-            Entity* sel = entity_manager_get_selected(&entities);
-            if (sel && sel->id < MAX_ENTITIES && entity_to_physics[sel->id] >= 0) {
-                game_mode = (game_mode == MODE_TURN_BASED) ? MODE_FREESTYLE : MODE_TURN_BASED;
-                printf("Game mode: %s\n", game_mode == MODE_FREESTYLE ? "FREESTYLE" : "TURN-BASED");
-            } else {
-                printf("Select a vehicle first (F)\n");
-            }
-        }
+        // F key is now free (mode toggle moved to TAB)
+        // Could be repurposed for another feature in the future
 
         // Start acceleration test with T (requires selected vehicle)
         if (input.keys_pressed[KEY_T]) {
@@ -1159,8 +1152,8 @@ int main(int argc, char* argv[]) {
             camera_update(&camera, &input, dt);
         }
 
-        // Apply vehicle controls only in freestyle mode
-        if (game_mode == MODE_FREESTYLE) {
+        // Apply vehicle controls only in freestyle mode (not paused)
+        if (!physics_is_paused(&physics)) {
             Entity* selected = entity_manager_get_selected(&entities);
             if (selected && selected->id < MAX_ENTITIES) {
                 int phys_id = entity_to_physics[selected->id];
@@ -1584,9 +1577,9 @@ int main(int argc, char* argv[]) {
             ui_rect(platform.width - 315, 465, 300, 50),
             UI_COLOR_ACCENT, UI_COLOR_WHITE, 2.0f, 4.0f);
 
-        // Bottom status bar
+        // Bottom status bar (two rows)
         ui_draw_panel(&ui_renderer,
-            ui_rect(10, platform.height - 50, platform.width - 340, 40),
+            ui_rect(10, platform.height - 70, platform.width - 340, 60),
             UI_COLOR_PANEL, UI_COLOR_SELECTED, 1.0f, 4.0f);
 
         ui_renderer_end(&ui_renderer);
@@ -1596,7 +1589,7 @@ int main(int argc, char* argv[]) {
             text_renderer_begin(&text_renderer, platform.width, platform.height);
 
             // Header text (changes based on mode)
-            const char* header_text = (game_mode == MODE_FREESTYLE) ? "FREESTYLE MODE" : "TURN PLANNING";
+            const char* header_text = !physics_is_paused(&physics) ? "FREESTYLE MODE" : "TURN PLANNING";
             text_draw_centered(&text_renderer, header_text,
                 ui_rect(platform.width - 315, 15, 300, 40), UI_COLOR_WHITE);
 
@@ -1706,133 +1699,158 @@ int main(int argc, char* argv[]) {
                     ui_rect(platform.width - 315, 465, 300, 50), UI_COLOR_WHITE);
             }
 
-            // Status bar text with dynamic info
+            // Status bar text - two rows with clear labels
+            // Row 1: Mode, Vehicle, Speed, Target (common to both modes)
+            // Row 2: Mode-specific details
             {
-                const char* team_name = "None";
+                const char* team_name = "No Vehicle";
                 Entity* sel = entity_manager_get_selected(&entities);
                 int phys_id = -1;
                 if (sel) {
-                    team_name = sel->team == TEAM_RED ? "Red" :
-                                sel->team == TEAM_BLUE ? "Blue" : "Other";
+                    team_name = sel->team == TEAM_RED ? "Red Team" :
+                                sel->team == TEAM_BLUE ? "Blue Team" : "Other";
                     if (sel->id < MAX_ENTITIES) {
                         phys_id = entity_to_physics[sel->id];
                     }
                 }
 
-                // Status bar with fixed column positions to prevent jitter
-                // Each column drawn at fixed X coordinate
-                int status_y = platform.height - 42;
-                char col_buf[32];
+                // Two-row layout with fixed column positions
+                int row1_y = platform.height - 58;  // Top row
+                int row2_y = platform.height - 38;  // Bottom row
+                char col_buf[48];
 
-                if (game_mode == MODE_FREESTYLE) {
-                    // Column X positions for freestyle mode
-                    // Wider spacing to accommodate cruise control text "100 mph CR:100"
-                    int col_mode = 20;
-                    int col_team = 50;
-                    int col_speed = 100;
-                    int col_hs = 270;
-                    int col_steer = 370;
-                    int col_force = 530;
+                // Column positions (same for both modes)
+                int col1 = 20;    // Mode
+                int col2 = 120;   // Vehicle
+                int col3 = 240;   // Speed
+                int col4 = 400;   // Target/Action
+                int col5 = 560;   // Handling
 
-                    float vel = 0.0f;
-                    if (sel && sel->id < MAX_ENTITIES) {
-                        vel = car_physics[sel->id].velocity;
-                    }
-                    int display_mph = (int)(fabsf(vel) * 2.237f);
+                // Get common data
+                float vel = 0.0f;
+                if (sel && sel->id < MAX_ENTITIES) {
+                    vel = car_physics[sel->id].velocity;
+                }
+                int display_mph = (int)(fabsf(vel) * 2.237f);
 
-                    float lateral_ms = 0.0f;
-                    float force_n = 0.0f;
-                    float traction = 0.0f;
-                    if (phys_id >= 0) {
-                        physics_vehicle_get_lateral_velocity(&physics, phys_id, &lateral_ms);
-                        physics_vehicle_get_traction_info(&physics, phys_id, &force_n, &traction);
-                    }
-                    float lateral_mph = lateral_ms * 2.237f;
-                    int wheels_contact = (int)(traction * 4.0f + 0.5f);
+                int hs = 0, hc = 0;
+                if (phys_id >= 0) {
+                    physics_vehicle_get_handling(&physics, phys_id, &hs, &hc);
+                }
 
-                    int hs = 0, hc = 0;
-                    if (phys_id >= 0) {
-                        physics_vehicle_get_handling(&physics, phys_id, &hs, &hc);
-                    }
+                // ===== ROW 1: Common info =====
+                // Mode indicator
+                const char* mode_label = physics_is_paused(&physics) ? "TURN MODE" : "FREE MODE";
+                text_draw(&text_renderer, mode_label, col1, row1_y,
+                          physics_is_paused(&physics) ? UI_COLOR_CAUTION : UI_COLOR_SAFE);
 
-                    // Draw each column at its fixed position
-                    text_draw(&text_renderer, "[F]", col_mode, status_y, UI_COLOR_WHITE);
-                    text_draw(&text_renderer, team_name, col_team, status_y, UI_COLOR_WHITE);
+                // Vehicle
+                text_draw(&text_renderer, team_name, col2, row1_y, UI_COLOR_WHITE);
 
+                // Speed
+                snprintf(col_buf, sizeof(col_buf), "Speed: %d mph", display_mph);
+                text_draw(&text_renderer, col_buf, col3, row1_y, UI_COLOR_WHITE);
+
+                // Target/Action (mode-dependent but same position)
+                if (!physics_is_paused(&physics)) {
+                    // Freestyle: show cruise target
                     bool cruise_on = phys_id >= 0 && physics_vehicle_cruise_active(&physics, phys_id);
                     if (cruise_on) {
                         float target_ms = physics_vehicle_cruise_target(&physics, phys_id);
                         int target_mph = (int)(target_ms * 2.237f);
-                        snprintf(col_buf, sizeof(col_buf), "%3d mph CR:%3d", display_mph, target_mph);
+                        snprintf(col_buf, sizeof(col_buf), "Cruise: %d mph", target_mph);
+                        text_draw(&text_renderer, col_buf, col4, row1_y, UI_COLOR_ACCENT);
                     } else {
-                        snprintf(col_buf, sizeof(col_buf), "%3d mph", display_mph);
+                        text_draw(&text_renderer, "Cruise: OFF", col4, row1_y, UI_COLOR_DISABLED);
                     }
-                    text_draw(&text_renderer, col_buf, col_speed, status_y, UI_COLOR_WHITE);
+                } else {
+                    // Turn mode: show next action
+                    const char* action_names[] = {"-5 mph (Brake)", "Hold Speed", "+5 mph (Accel)"};
+                    snprintf(col_buf, sizeof(col_buf), "Action: %s", action_names[planning.speed_choice]);
+                    text_draw(&text_renderer, col_buf, col4, row1_y, UI_COLOR_ACCENT);
+                }
 
-                    snprintf(col_buf, sizeof(col_buf), "HS:%2d/%d", hs, hc);
-                    text_draw(&text_renderer, col_buf, col_hs, status_y, UI_COLOR_WHITE);
+                // Handling
+                snprintf(col_buf, sizeof(col_buf), "Handling: %d/%d", hs, hc);
+                text_draw(&text_renderer, col_buf, col5, row1_y, UI_COLOR_WHITE);
 
-                    // Steering with optional drift indicator
+                // ===== ROW 2: Mode-specific details =====
+                if (!physics_is_paused(&physics)) {
+                    // Freestyle mode: Steering, Traction, Drift status
+                    // Steering
                     if (discrete_steering) {
                         if (steering_level == 0) {
-                            snprintf(col_buf, sizeof(col_buf), "Steer: 0");
+                            snprintf(col_buf, sizeof(col_buf), "Steering: Center");
                         } else {
                             int d_level = steering_level < 0 ? -steering_level : steering_level;
-                            char dir = steering_level < 0 ? 'L' : 'R';
-                            snprintf(col_buf, sizeof(col_buf), "Steer: %c-D%d", dir, d_level);
+                            const char* dir = steering_level < 0 ? "Left" : "Right";
+                            snprintf(col_buf, sizeof(col_buf), "Steering: %s D%d", dir, d_level);
                         }
                     } else {
-                        snprintf(col_buf, sizeof(col_buf), "Steer: ~");
+                        snprintf(col_buf, sizeof(col_buf), "Steering: Analog");
                     }
-                    if (lateral_mph >= 15.0f) {
-                        strncat(col_buf, " SPIN!", sizeof(col_buf) - strlen(col_buf) - 1);
-                    } else if (lateral_mph >= 5.0f) {
-                        strncat(col_buf, " DRIFT", sizeof(col_buf) - strlen(col_buf) - 1);
-                    }
-                    text_draw(&text_renderer, col_buf, col_steer, status_y, UI_COLOR_WHITE);
+                    text_draw(&text_renderer, col_buf, col1, row2_y, UI_COLOR_WHITE);
 
-                    snprintf(col_buf, sizeof(col_buf), "F:%6.0fN %d/4", force_n, wheels_contact);
-                    text_draw(&text_renderer, col_buf, col_force, status_y, UI_COLOR_WHITE);
-
-                    // Paused indicator
-                    if (physics_is_paused(&physics)) {
-                        text_draw(&text_renderer, "PAUSED", col_force + 150, status_y, UI_COLOR_CAUTION);
-                    }
-
-                } else {
-                    // Column X positions for turn-based mode
-                    // Match freestyle spacing for consistency
-                    int col_mode = 20;
-                    int col_team = 50;
-                    int col_speed = 100;
-                    int col_hs = 270;
-                    int col_next = 370;
-                    int col_phase = 500;
-
-                    const char* speed_names[] = {"BRAKE", "HOLD", "ACCEL"};
-                    int hs = 0, hc = 0;
+                    // Traction
+                    float traction = 0.0f;
                     if (phys_id >= 0) {
-                        physics_vehicle_get_handling(&physics, phys_id, &hs, &hc);
+                        float force_n;
+                        physics_vehicle_get_traction_info(&physics, phys_id, &force_n, &traction);
                     }
+                    int wheels_contact = (int)(traction * 4.0f + 0.5f);
+                    snprintf(col_buf, sizeof(col_buf), "Traction: %d/4 wheels", wheels_contact);
+                    text_draw(&text_renderer, col_buf, col3, row2_y, UI_COLOR_WHITE);
 
-                    text_draw(&text_renderer, "[T]", col_mode, status_y, UI_COLOR_WHITE);
-                    text_draw(&text_renderer, team_name, col_team, status_y, UI_COLOR_WHITE);
+                    // Drift/Spin status
+                    float lateral_ms = 0.0f;
+                    if (phys_id >= 0) {
+                        physics_vehicle_get_lateral_velocity(&physics, phys_id, &lateral_ms);
+                    }
+                    float lateral_mph = lateral_ms * 2.237f;
+                    if (lateral_mph >= 15.0f) {
+                        text_draw(&text_renderer, "*** SPINNING ***", col5, row2_y, UI_COLOR_DANGER);
+                    } else if (lateral_mph >= 5.0f) {
+                        text_draw(&text_renderer, "DRIFTING", col5, row2_y, UI_COLOR_CAUTION);
+                    } else {
+                        text_draw(&text_renderer, "Grip OK", col5, row2_y, UI_COLOR_SAFE);
+                    }
+                } else {
+                    // Turn mode: Phase info
+                    snprintf(col_buf, sizeof(col_buf), "Selected Phase: P%d", planning.selected_phase + 1);
+                    text_draw(&text_renderer, col_buf, col1, row2_y, UI_COLOR_WHITE);
 
-                    snprintf(col_buf, sizeof(col_buf), "%3d mph", planning.current_speed);
-                    text_draw(&text_renderer, col_buf, col_speed, status_y, UI_COLOR_WHITE);
+                    // Show active phases
+                    char phases_str[32] = "Active: ";
+                    bool first = true;
+                    for (int i = 0; i < 5; i++) {
+                        if ((planning.active_phases_mask >> i) & 1) {
+                            char pnum[4];
+                            snprintf(pnum, sizeof(pnum), first ? "P%d" : ",P%d", i + 1);
+                            strncat(phases_str, pnum, sizeof(phases_str) - strlen(phases_str) - 1);
+                            first = false;
+                        }
+                    }
+                    text_draw(&text_renderer, phases_str, col3, row2_y, UI_COLOR_WHITE);
 
-                    snprintf(col_buf, sizeof(col_buf), "HS:%2d/%d", hs, hc);
-                    text_draw(&text_renderer, col_buf, col_hs, status_y, UI_COLOR_WHITE);
+                    // Show declared maneuver for selected phase
+                    if (planning.selected_phase >= 0 && planning.selected_phase < 5) {
+                        ManeuverType m = planning.phase_maneuver[planning.selected_phase];
+                        ManeuverDirection d = planning.phase_direction[planning.selected_phase];
+                        const char* dir_str = (d == MANEUVER_LEFT) ? "Left" : "Right";
 
-                    snprintf(col_buf, sizeof(col_buf), "Next: %s", speed_names[planning.speed_choice]);
-                    text_draw(&text_renderer, col_buf, col_next, status_y, UI_COLOR_WHITE);
-
-                    snprintf(col_buf, sizeof(col_buf), "Phase: P%d", planning.selected_phase + 1);
-                    text_draw(&text_renderer, col_buf, col_phase, status_y, UI_COLOR_WHITE);
-
-                    // Paused indicator
-                    if (physics_is_paused(&physics)) {
-                        text_draw(&text_renderer, "PAUSED", col_phase + 100, status_y, UI_COLOR_CAUTION);
+                        if (m == MANEUVER_NONE) {
+                            snprintf(col_buf, sizeof(col_buf), "Maneuver: Straight");
+                        } else if (m == MANEUVER_DRIFT) {
+                            snprintf(col_buf, sizeof(col_buf), "Maneuver: Drift %s", dir_str);
+                        } else if (m == MANEUVER_STEEP_DRIFT) {
+                            snprintf(col_buf, sizeof(col_buf), "Maneuver: Steep %s", dir_str);
+                        } else if (m == MANEUVER_BEND) {
+                            snprintf(col_buf, sizeof(col_buf), "Maneuver: Bend %d %s",
+                                     planning.phase_bend_angle[planning.selected_phase], dir_str);
+                        } else {
+                            snprintf(col_buf, sizeof(col_buf), "Maneuver: Straight");
+                        }
+                        text_draw(&text_renderer, col_buf, col5, row2_y, UI_COLOR_WHITE);
                     }
                 }
             }
@@ -1922,7 +1940,7 @@ int main(int argc, char* argv[]) {
                 ty += line_h;
                 text_draw(&text_renderer, "  T         Accel Test", tx, ty, UI_COLOR_WHITE);
                 ty += line_h;
-                text_draw(&text_renderer, "  F         Mode", tx, ty, UI_COLOR_WHITE);
+                text_draw(&text_renderer, "  TAB       Turn Based mode", tx, ty, UI_COLOR_WHITE);
                 ty += line_h * 1.3f;
 
                 text_draw(&text_renderer, "DEBUG", tx, ty, UI_COLOR_CAUTION);
