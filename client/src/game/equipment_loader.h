@@ -1,6 +1,6 @@
 /*
  * Equipment Loader
- * Loads Car Wars equipment data and provides lookup functions
+ * Loads tabletop equipment data and provides lookup functions
  */
 
 #ifndef EQUIPMENT_LOADER_H

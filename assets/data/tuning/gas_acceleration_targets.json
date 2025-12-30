@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "description": "Gas engine acceleration targets based on Car Wars rules",
+    "description": "Gas engine acceleration targets based on tabletop rules",
     "acceleration_classes": {
       "5_mph_s": { "pf_weight_ratio": 0.333, "target_0_60_seconds": 12.0 },
       "10_mph_s": { "pf_weight_ratio": 0.500, "target_0_60_seconds": 6.0 },

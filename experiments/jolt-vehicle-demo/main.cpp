@@ -2,7 +2,7 @@
  * Jolt Physics Vehicle Demo
  *
  * Standalone demo to test Jolt's WheeledVehicleController
- * before integrating into Car Wars engine.
+ * before integrating into tabletop engine.
  */
 
 #include <iostream>

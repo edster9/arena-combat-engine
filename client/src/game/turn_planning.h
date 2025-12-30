@@ -18,7 +18,7 @@
  *   4. END PHASE - Handling recovery, turn counter advances
  */
 
-// Maximum phases per turn (Car Wars standard)
+// Maximum phases per turn (tabletop standard)
 #define MAX_PHASES 5
 
 // === MANEUVER TYPES ===

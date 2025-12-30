@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "Brake systems for vehicles",
-    "notes": "Car Wars doesn't have explicit brake equipment, but handling class affects control. We add brakes for physics simulation.",
+    "notes": "tabletop doesn't have explicit brake equipment, but handling class affects control. We add brakes for physics simulation.",
     "physics_translation": {
       "brake_force_formula": "base_force * vehicle_mass_kg",
       "units": {

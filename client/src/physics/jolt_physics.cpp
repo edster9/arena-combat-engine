@@ -513,7 +513,7 @@ void physics_step(PhysicsWorld* pw, float dt)
                         float speedScale = targetSpeed / SIXTY_MPH_MS;
 
                         // Determine bucket range based on target 0-60 time
-                        // Car Wars buckets with midpoint boundaries:
+                        // tabletop buckets with midpoint boundaries:
                         //   5 mph/s = 12s, 10 mph/s = 6s, 15 mph/s = 4s, 20 mph/s = 3s
                         // Midpoints: 9s (5/10), 5s (10/15), 3.5s (15/20)
                         float rangeMin, rangeMax;

@@ -459,7 +459,7 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
                 out->chassis_length = chassis_equip->length_default;
                 out->chassis_width = chassis_equip->width_default;
                 out->chassis_height = chassis_equip->height_default;
-                // Calculate mass from weight (Car Wars lbs -> kg)
+                // Calculate mass from weight (tabletop lbs -> kg)
                 out->chassis_mass = chassis_equip->weight_lbs * LBS_TO_KG;
                 // Copy center of mass from chassis equipment
                 out->physics.center_of_mass = vec3(
@@ -591,16 +591,16 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
             out->chassis_mass += pp->weight_kg;
             out->physics.chassis_mass = out->chassis_mass;
 
-            // Store power factors for Car Wars calculations
+            // Store power factors for tabletop calculations
             out->physics.power_factors = pp->power_factors;
             strncpy(out->physics.vehicle_name, out->name, 63);
             out->physics.vehicle_name[63] = '\0';
 
-            // Calculate weight in lbs for Car Wars formulas
+            // Calculate weight in lbs for tabletop formulas
             float weight_lbs = out->chassis_mass / LBS_TO_KG;
             float pf_weight_ratio = (float)pp->power_factors / weight_lbs;
 
-            // Calculate top speed from Car Wars formula
+            // Calculate top speed from tabletop formula
             out->physics.top_speed_ms = equipment_calc_top_speed_ms(pp->type, pp->power_factors, (int)weight_lbs);
 
             // Determine acceleration class from PF/weight ratio
@@ -914,7 +914,7 @@ bool config_load_scene(const char* filepath, SceneJSON* out) {
 
 // Global active physics mode
 static PhysicsMode s_active_physics_mode = {
-    .name = "Strict Car Wars",
+    .name = "Strict tabletop",
     .type = PHYSICS_MODE_STRICT_CAR_WARS,
     .overrides = {
         .tire = { .mu = 2.0f, .reference_radius = 0.35f, .reference_width = 0.2f },
@@ -927,7 +927,7 @@ static PhysicsMode s_active_physics_mode = {
 bool config_load_physics_mode(const char* filepath, PhysicsMode* out) {
     // Set defaults (strict mode)
     memset(out, 0, sizeof(*out));
-    strcpy(out->name, "Strict Car Wars");
+    strcpy(out->name, "Strict tabletop");
     out->type = PHYSICS_MODE_STRICT_CAR_WARS;
     out->overrides.tire.mu = 2.0f;
     out->overrides.tire.reference_radius = 0.35f;

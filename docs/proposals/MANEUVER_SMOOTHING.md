@@ -8,7 +8,7 @@
 
 ## Problem Statement
 
-At higher speeds, Car Wars phase durations become very short:
+At higher speeds, tabletop phase durations become very short:
 
 | Speed | Phases | Duration per Phase |
 |-------|--------|-------------------|
@@ -82,7 +82,7 @@ P2+P4: Combined smooth S-curve motion (1.0s total)
 **Benefits:**
 - Eliminates visual "stutter" between consecutive maneuvers
 - Creates cinematic racing feel for replays
-- Maintains Car Wars rule accuracy (same endpoints)
+- Maintains tabletop rule accuracy (same endpoints)
 
 **Complexity:**
 - Requires path planning that combines multiple maneuver geometries
@@ -106,7 +106,7 @@ Proposed settings (in options menu or config):
   [ ] Maneuver Blending   - Combine consecutive maneuvers into fluid motion
 ```
 
-Both off = strict frame-accurate Car Wars timing (purist mode)
+Both off = strict frame-accurate tabletop timing (purist mode)
 Both on = maximum cinematic smoothness (replay mode)
 
 ---
@@ -144,4 +144,4 @@ Both on = maximum cinematic smoothness (replay mode)
 
 - [maneuver.cpp](../client/src/game/maneuver.cpp) - Current kinematic animation system
 - [maneuver.h](../client/src/game/maneuver.h) - ManeuverAutopilot structure
-- [CONFIG_GUIDE.md](CONFIG_GUIDE.md) - Car Wars phase timing rules
+- [CONFIG_GUIDE.md](CONFIG_GUIDE.md) - tabletop phase timing rules

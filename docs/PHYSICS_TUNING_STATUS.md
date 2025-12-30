@@ -14,7 +14,7 @@ F = mass × target_acceleration × K
 
 Where:
 - **mass** = Total vehicle weight in kg
-- **target_acceleration** = From Car Wars PF/weight ratio (m/s²)
+- **target_acceleration** = From tabletop PF/weight ratio (m/s²)
 - **K** = Per-bucket compensation factor for Jolt wheel resistance + engine RPM ramp
 
 ### Engine RPM Ramp-Up
@@ -41,8 +41,8 @@ K values compensate for:
 
 ### Why This Works
 
-- Car Wars acceleration is constant regardless of speed (no air resistance modeling)
-- Top speed comes from Car Wars formula, not physics simulation
+- tabletop acceleration is constant regardless of speed (no air resistance modeling)
+- Top speed comes from tabletop formula, not physics simulation
 - Wheels are cosmetic - steering uses Jolt constraint, but propulsion is body force
 - Physics engine handles collisions, flips, jumps, gravity
 
@@ -104,7 +104,7 @@ All tests performed on Compact chassis (590kg base) with standard tires (mu=2.0)
 
 ### Physics Implementation
 - `client/src/physics/jolt_physics.cpp` - Matchbox force application (lines 280-312)
-- `client/src/physics/jolt_physics.h` - VehicleConfig with Car Wars physics fields
+- `client/src/physics/jolt_physics.h` - VehicleConfig with tabletop physics fields
 
 ### Configuration
 - `client/src/game/config_loader.cpp` - Per-bucket K factors (lines 591-609)
@@ -128,7 +128,7 @@ For vehicles that can't reach 60 mph (e.g., 10 cid gas = 40 mph max):
 - Bucket ranges scaled proportionally
 - Example: 0-40 test uses 67% of normal time ranges
 
-## Car Wars Acceleration Buckets
+## tabletop Acceleration Buckets
 
 | PF/Weight Ratio | Acceleration | 0-60 Time |
 |-----------------|--------------|-----------|

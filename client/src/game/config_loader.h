@@ -161,7 +161,7 @@ typedef struct {
 
 // Physics mode types
 typedef enum {
-    PHYSICS_MODE_STRICT_CAR_WARS = 0,  // Enforces Car Wars rules
+    PHYSICS_MODE_STRICT_CAR_WARS = 0,  // Enforces tabletop rules
     PHYSICS_MODE_EXTENDED              // Full configurable physics
 } PhysicsModeType;
 
@@ -222,7 +222,7 @@ const PhysicsMode* config_get_physics_mode(void);
 // Call this after loading vehicle config but before passing to physics
 void config_apply_physics_mode(VehicleJSON* vehicle, const PhysicsMode* mode);
 
-// Check if we're in strict Car Wars mode
+// Check if we're in strict tabletop mode
 bool config_is_strict_mode(void);
 
 #endif // CONFIG_LOADER_H

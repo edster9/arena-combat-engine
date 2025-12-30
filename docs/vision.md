@@ -1,10 +1,10 @@
-# Vision: Car Wars Arena
+# Vision: Arena Combat Engine
 
 ## The Core Concept
 
 **"A tabletop game that came to life."**
 
-This is not a realistic racing simulator. This is not an arcade shooter. This is the experience of playing Car Wars on a table with your friends - but the miniatures move on their own, the dice roll themselves, and the explosions are real.
+This is not a realistic racing simulator. This is not an arcade shooter. This is the experience of playing a classic vehicular combat tabletop game with your friends - but the miniatures move on their own, the dice roll themselves, and the explosions are real.
 
 ---
 
@@ -12,18 +12,17 @@ This is not a realistic racing simulator. This is not an arcade shooter. This is
 
 ### The Book Art Feel (DECISION)
 
-The visual style should evoke the original Car Wars books and magazines - not a literal tabletop, but that distinctive illustrated aesthetic.
+The visual style should evoke classic 80s tabletop game books and magazines - not a literal tabletop, but that distinctive illustrated aesthetic.
 
 **Key direction:**
-- Textures inspired by Denis Loubet illustrations and Uncle Albert's catalogs
 - Technical illustration quality - detailed but stylized
 - Gritty 80s post-apocalyptic, not grimdark or cartoony
 - **NOT** trying to look like a game board on a table
-- **IS** trying to capture the feel of the book art come to life
+- **IS** trying to capture the feel of book art come to life
 
 Elements:
 - **Vehicles** have that illustrated quality - bold colors, visible wear, chunky proportions
-- **The Arena** feels industrial and lived-in, like the book's scenario illustrations
+- **The Arena** feels industrial and lived-in
 - **The Grid** is visible but integrated (painted lines on concrete, not glowing overlay)
 - **UI** uses the record sheet aesthetic, typewriter fonts, stamped text
 
@@ -45,7 +44,7 @@ NOT THIS:                          THIS:
 Hyper-realistic                    Stylized but solid
 Photo-real cars                    Miniature/model feel
 Video game HUD                     Tabletop information display
-Generic post-apocalypse            Car Wars specific (AADA, Uncle Albert's)
+Generic post-apocalypse            Distinctive world with personality
 ```
 
 ---
@@ -63,15 +62,15 @@ Generic post-apocalypse            Car Wars specific (AADA, Uncle Albert's)
 | **Into the Breach** | Clean tactical grid, readable but stylish |
 | **XCOM** | Turn resolution drama, camera follows action |
 
-### The Original Art
+### Visual Language
 
-Car Wars has a specific visual language:
+Classic tabletop vehicular combat has a specific visual language:
 
-- Denis Loubet's cover art - gritty but not grimdark
+- Gritty but not grimdark cover art
 - Vehicle counters - top-down, detailed silhouettes
 - Arena maps - clean grids, industrial structures
-- Uncle Albert's catalogs - technical illustration style
-- Autoduel Quarterly covers - action scenes, 80s sci-fi aesthetic
+- Technical illustration style for equipment catalogs
+- Action scenes with 80s sci-fi aesthetic
 
 This isn't Mad Max chrome-and-leather. It's working-class America with guns on cars.
 
@@ -102,19 +101,18 @@ This isn't Mad Max chrome-and-leather. It's working-class America with guns on c
 
 ## The Nostalgia Factor
 
-Car Wars players are in their 40s-60s now. They remember:
+Fans of classic tabletop vehicular combat remember:
 
 - Photocopying vehicle record sheets
 - Arguing about line-of-sight
 - The smell of the pocket box
 - Calculating build points by hand
-- Uncle Albert's ridiculous catalog descriptions
 
 The game should occasionally wink at this:
 
 - Vehicle record sheets as UI elements
 - Turn phases announced like the rulebook describes them
-- Easter eggs referencing classic scenarios (Midville, Armadillo)
+- Easter eggs referencing the genre
 
 ### Dice Rolls (DECISION)
 
@@ -144,7 +142,7 @@ The roll should feel satisfying without becoming a bottleneck.
 
 The visual design succeeds if:
 
-1. A Car Wars veteran sees a screenshot and immediately knows what it is
+1. A fan of tabletop vehicular combat sees a screenshot and feels at home
 2. A new player understands it's a tactical game, not a twitch shooter
 3. The board-game heritage is obvious but not limiting
 4. Watching a car explode feels satisfying every single time

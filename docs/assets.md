@@ -69,7 +69,7 @@ Coordinate system:
   - Origin at vehicle center, on ground plane
 
 Scale:
-  - 1 unit = 1 inch (Car Wars scale)
+  - 1 unit = 1 inch (tabletop scale)
   - Typical car: ~180 units long (15 feet)
 ```
 
@@ -178,7 +178,7 @@ Normalize to -3dB peak
 
 | Asset                    | Description            |
 | ------------------------ | ---------------------- |
-| **Vehicle record sheet** | Classic Car Wars style |
+| **Vehicle record sheet** | Classic tabletop style |
 | **Weapon icons**         | MG, rocket, etc.       |
 | **Status icons**         | Fire, disabled, etc.   |
 | **Turn indicator**       | Current phase display  |
@@ -189,7 +189,7 @@ Normalize to -3dB peak
 Aesthetic: Paper/cardboard, typewriter text
 Colors: Tan, brown, black ink
 Borders: Rough edges, stamped look
-Reference: Original Car Wars record sheets
+Reference: Original tabletop record sheets
 ```
 
 ---
@@ -259,7 +259,7 @@ To communicate the desired style to artists:
 
 ### Reference Images to Collect
 
-- [ ] Original Car Wars box art
+- [ ] Original tabletop box art
 - [ ] Denis Loubet vehicle illustrations
 - [ ] Gaslands miniatures (modern reference)
 - [ ] Micro Machines toys (toy car aesthetic)
@@ -282,12 +282,12 @@ To communicate the desired style to artists:
 
 ### Reference Material
 
-Extract from the Car Wars books in `/books/`:
+Extract from the tabletop books in `/books/`:
 
 - Vehicle illustrations for AI texture prompts
 - Arena layouts for level design
 - Record sheets for UI design
-- Uncle Albert's catalog art for equipment icons
+- equipment catalog art for equipment icons
 
 ### AI Texture Workflow
 
@@ -339,7 +339,7 @@ Budget: Allocate for 2-3 quality vehicle models and basic arena kit.
 - Traffic props (cones, boxes)
 - Textures included
 
-**Recommended for Car Wars:**
+**Recommended for tabletop:**
 
 - `sedan-sports` - Good compact armed vehicle base
 - `race-future` - Futuristic variant
@@ -371,7 +371,7 @@ Budget: Allocate for 2-3 quality vehicle models and basic arena kit.
 
 #### Gaslands/Miniature Style
 
-For authentic Car Wars miniature aesthetic:
+For authentic tabletop miniature aesthetic:
 
 - **Thingiverse** - Gaslands STL files (need 3D printing or conversion)
 - **MyMiniFactory** - Combat vehicles STLs
@@ -386,7 +386,7 @@ For authentic Car Wars miniature aesthetic:
 1. **Phase 1 (Now):** Kenney Car Kit for prototyping and scale testing
 2. **Phase 2 (Demo):** Modify Kenney models with weapon attachments in Blender
 3. **Phase 3 (Polish):** Commission or purchase stylized combat vehicles
-4. **Phase 4 (Release):** Original models matching Car Wars aesthetic
+4. **Phase 4 (Release):** Original models matching tabletop aesthetic
 
 ---
 

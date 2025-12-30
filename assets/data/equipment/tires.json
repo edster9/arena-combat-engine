@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "description": "Car Wars tires - base types and modifications with physics engine values",
-    "source": "Car Wars Compendium 2nd Edition, Uncle Albert's Catalog",
+    "description": "tabletop tires - base types and modifications with physics engine values",
+    "source": "tabletop Compendium 2nd Edition, equipment catalog",
     "units": {
       "cost": "dollars per tire",
       "weight": "lbs per tire",
@@ -13,9 +13,9 @@
       "Cycle tires cost same but weigh half as much"
     ],
     "physics_values": {
-      "_notes": "Physics traction - standardized across all tires to match Car Wars (tires don't affect acceleration)",
+      "_notes": "Physics traction - standardized across all tires to match tabletop (tires don't affect acceleration)",
       "mu": "Friction coefficient - SAME for all tire types (2.0). Tire choice affects handling/damage, not accel.",
-      "tuning_note": "mu=2.0 balanced with gear ratios to achieve Car Wars 10 mph/s acceleration",
+      "tuning_note": "mu=2.0 balanced with gear ratios to achieve tabletop 10 mph/s acceleration",
       "future_extension": "If adding realistic tire physics later, could add optional mu_override per tire"
     }
   },

@@ -1,6 +1,6 @@
-# Car Wars Maneuvering System
+# Vehicle Maneuvering System
 
-This document covers all vehicle maneuvers from the Car Wars Compendium 2nd Edition, including rules, difficulty ratings, speed requirements, and implementation notes.
+This document covers all vehicle maneuvers inspired by classic tabletop vehicular combat games, including rules, difficulty ratings, speed requirements, and implementation notes.
 
 ---
 
@@ -569,8 +569,5 @@ When performing any skid (from Controlled Skid or Crash Table):
 
 ## References
 
-- Car Wars Compendium 2nd Edition, Steve Jackson Games
-- Car Wars Reference Booklet 3x (cwspark.org)
-- [books/Car_Wars_Compendium.txt](../books/Car_Wars_Compendium.txt)
-- [books/cwc_reference_booklet_3x.pdf](../books/cwc_reference_booklet_3x.pdf)
-- [data/carwars_db.json](../data/carwars_db.json) - Movement and maneuvers section
+- Classic tabletop vehicular combat rulebooks
+- Community reference materials

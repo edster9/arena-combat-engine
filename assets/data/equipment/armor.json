@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "description": "Car Wars vehicle armor types and modifiers",
-    "source": "Car Wars Compendium 2nd Edition, Uncle Albert's Catalog",
+    "description": "tabletop vehicle armor types and modifiers",
+    "source": "tabletop Compendium 2nd Edition, equipment catalog",
     "units": {
       "cost": "dollars per point",
       "weight": "lbs per point"

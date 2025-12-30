@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "description": "Car Wars suspension types with Jolt Physics mapping",
-    "source": "Car Wars Compendium 2nd Edition",
+    "description": "tabletop suspension types with Jolt Physics mapping",
+    "source": "tabletop Compendium 2nd Edition",
     "notes": [
       "Suspension determines base Handling Class (HC)",
       "Cost is based on percentage of body cost",

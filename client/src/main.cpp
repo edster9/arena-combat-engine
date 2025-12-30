@@ -100,7 +100,7 @@ static int calculate_next_speed(int current_speed, SpeedChoice choice) {
 }
 
 // Calculate movement distance in game units for a given speed
-// Car Wars: distance per turn = speed / 10 inches
+// tabletop: distance per turn = speed / 10 inches
 // Our scale: 1 game unit = 1 inch
 static float calculate_move_distance(int speed_mph) {
     return (float)speed_mph / 10.0f;
@@ -114,7 +114,7 @@ static Vec3 calculate_end_position(Vec3 start, float rotation_y, float distance)
     return vec3(start.x + dx, start.y, start.z + dz);
 }
 
-// Get active phases for a given speed (Car Wars rules)
+// Get active phases for a given speed (tabletop rules)
 // Returns bitmask: bit 0 = P1, bit 1 = P2, ..., bit 4 = P5
 // 0 mph = P3 only (for starting from stop - ACCEL only, STRAIGHT only)
 // 10 mph = P3 only (0b00100)
@@ -492,7 +492,7 @@ int main(int argc, char* argv[]) {
     // Set up ground plane from scene config
     physics_set_ground(&physics, scene_config.arena.ground_y);
 
-    // Initialize floor with arena size from config (1 unit grid = Car Wars scale)
+    // Initialize floor with arena size from config (1 unit grid = tabletop scale)
     if (!floor_init(&arena_floor, scene_config.arena.size, 1.0f)) {
         fprintf(stderr, "Failed to initialize floor\n");
         physics_destroy(&physics);
@@ -1170,7 +1170,7 @@ int main(int argc, char* argv[]) {
                     float reverse = 0.0f;
                     float brake = 0.0f;
 
-                    // Steering modes: discrete (Car Wars style) or gradual (analog style)
+                    // Steering modes: discrete (tabletop style) or gradual (analog style)
                     const float steering_rate = 2.5f;  // Full lock in ~0.4 seconds (gradual)
 
                     // M key toggles steering mode
@@ -1183,7 +1183,7 @@ int main(int argc, char* argv[]) {
                     }
 
                     if (discrete_steering) {
-                        // Discrete mode: Car Wars D ratings (D1=15°, D2=30°, D3=45°)
+                        // Discrete mode: tabletop D ratings (D1=15°, D2=30°, D3=45°)
                         // Level 0 = straight, ±1 = D1, ±2 = D2, ±3 = D3 (full lock)
                         // Steering holds position until manually changed
                         if (input.keys_pressed[KEY_LEFT]) {

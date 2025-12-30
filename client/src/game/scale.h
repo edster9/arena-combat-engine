@@ -5,7 +5,7 @@
  * CAR WARS SCALE REFERENCE
  * ========================
  *
- * Car Wars Tabletop Scale:
+ * tabletop Tabletop Scale:
  *   - 1 tabletop inch = 15 real feet (scale 1:180)
  *   - Car counter = 1 inch long (represents ~15 foot car)
  *   - Grid squares = 1/4 inch (3.75 feet)
@@ -25,13 +25,13 @@
  *   The VISUAL_SCALE multiplies rendered size without affecting game logic.
  */
 
-// === GAME LOGIC SCALE (matches Car Wars rules) ===
-// 1 unit = 1 Car Wars inch = 15 feet
+// === GAME LOGIC SCALE (matches tabletop rules) ===
+// 1 unit = 1 tabletop inch = 15 feet
 
 #define CW_INCH_TO_FEET     15.0f           // 1 tabletop inch = 15 real feet
 #define CW_FEET_TO_INCH     (1.0f/15.0f)    // Convert feet to tabletop inches
 
-// Vehicle game dimensions (in Car Wars inches / game units)
+// Vehicle game dimensions (in tabletop inches / game units)
 #define CW_CAR_LENGTH       1.0f            // Car counter is 1 inch long
 #define CW_CAR_WIDTH        0.5f            // Car counter is ~0.5 inch wide
 #define CW_CYCLE_LENGTH     0.5f            // Cycle counter is 0.5 inch long
@@ -63,7 +63,7 @@
 // Speed in mph -> distance in game units per turn
 
 // At speed X mph, vehicle moves X/10 game units per turn
-// (because 10 mph = 1 inch/turn in Car Wars)
+// (because 10 mph = 1 inch/turn in tabletop)
 #define MPH_TO_UNITS_PER_TURN(mph)  ((mph) / 10.0f)
 #define UNITS_PER_TURN_TO_MPH(u)    ((u) * 10.0f)
 

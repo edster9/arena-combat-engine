@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build Car Wars client
+# Build Arena client
 # OS-aware: handles WSL2, Linux, and MINGW64
 
 set -e

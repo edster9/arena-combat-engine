@@ -1,17 +1,17 @@
-# Physics Design: Hybrid Car Wars + Real Physics
+# Physics Design: Hybrid Tabletop Rules + Real Physics
 
 ## Overview
 
-This game blends **Car Wars tabletop rules** with **real-time physics simulation**.
+This game blends **tabletop rules** with **real-time physics simulation**.
 
-- **Car Wars Rules** = The REFEREE (decides IF something bad happens)
+- **Tabletop Rules** = The REFEREE (decides IF something bad happens)
 - **Physics Engine** = REALITY (decides HOW it plays out)
 
 ---
 
 ## Core Philosophy
 
-In traditional Car Wars, crash results are deterministic:
+In traditional tabletop games, crash results are deterministic:
 - Roll on Crash Table → "Major Skid" → Car rotates exactly 180°
 
 In our hybrid system:
@@ -37,7 +37,7 @@ In our hybrid system:
 
 ### Phase 3: Turn-Based Physics Integration
 - Execute turn with full physics
-- Car Wars rules trigger forces
+- Tabletop rules trigger forces
 - Physics simulates the result
 - Camera follows action in real-time
 
@@ -45,7 +45,7 @@ In our hybrid system:
 
 ## Crash Types and Physics Forces
 
-| Crash Type | Car Wars Result | Physics Force to Apply |
+| Crash Type | Tabletop Result | Physics Force to Apply |
 |------------|-----------------|------------------------|
 | Minor Skid | Slight slide | Small lateral impulse (500-1000 N) |
 | Major Skid | 180° spin | Large lateral + angular torque |
@@ -78,7 +78,7 @@ Vault:       Upward force at center
 
 ## Collision Handling
 
-### Car Wars Rules (Damage Calculation)
+### Tabletop Rules (Damage Calculation)
 - Ram damage = speed differential / 10 (dice)
 - T-bone: Full damage to side, half to front
 - Head-on: Both take full damage
@@ -87,7 +87,7 @@ Vault:       Upward force at center
 ### Physics Response
 - Let physics handle bounce/spin naturally
 - Apply additional forces if control is lost
-- Use Car Wars damage tables for HP loss
+- Use damage tables for HP loss
 
 ---
 
@@ -182,7 +182,7 @@ typedef struct {
 
 ---
 
-## Integration with Car Wars Rules
+## Integration with Tabletop Rules
 
 ```
 TURN EXECUTION FLOW:
@@ -200,7 +200,7 @@ TURN EXECUTION FLOW:
    d. Apply appropriate physics force
    e. Step physics simulation (~1 second)
    f. Check for collisions
-   g. Apply collision damage (Car Wars rules)
+   g. Apply collision damage (tabletop rules)
 
 3. Resolution Phase
    - Update car final position from physics

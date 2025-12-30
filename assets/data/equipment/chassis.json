@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "description": "Car Wars chassis/body types - defines vehicle frame",
-    "source": "Car Wars Compendium 2nd Edition",
+    "description": "tabletop chassis/body types - defines vehicle frame",
+    "source": "tabletop Compendium 2nd Edition",
     "units": {
       "cost": "dollars",
       "weight": "lbs",

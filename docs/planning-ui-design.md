@@ -6,7 +6,7 @@ The Planning Phase is where the player inputs their vehicle's orders for the upc
 
 ## Design Goals
 
-1. **Intuitive** - A Car Wars fan should recognize the concepts
+1. **Intuitive** - A tabletop fan should recognize the concepts
 2. **Quick** - Planning shouldn't take longer than execution
 3. **Visual** - Show the path preview, not just numbers
 4. **Informative** - Display risk (difficulty) clearly

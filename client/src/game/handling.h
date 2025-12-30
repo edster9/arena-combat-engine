@@ -1,5 +1,5 @@
 /*
- * Car Wars Handling System
+ * tabletop Handling System
  *
  * Tracks Handling Class (HC) and Handling Status (HS) for vehicles.
  * Determines when control rolls are needed and whether they succeed.

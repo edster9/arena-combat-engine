@@ -1,5 +1,5 @@
 #!/bin/bash
-# extract_books.sh - Extract text and images from Car Wars PDF books
+# extract_books.sh - Extract text and images from reference PDF books
 # Run this if the books/images or books/*.txt files are lost
 # Requires: pdftotext, pdfimages (from poppler-utils)
 
@@ -54,7 +54,7 @@ extract_images() {
 
 # Main
 main() {
-    echo "=== Car Wars Book Extraction Script ==="
+    echo "=== reference Book Extraction Script ==="
     echo "Project root: $PROJECT_ROOT"
     echo "Books directory: $BOOKS_DIR"
     echo ""

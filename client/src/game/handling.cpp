@@ -1,5 +1,5 @@
 /*
- * Car Wars Handling System Implementation
+ * tabletop Handling System Implementation
  */
 
 #include "handling.h"

@@ -11,7 +11,7 @@ This guide explains all configuration values used in the game engine. Use this a
 3. [Chassis Configuration](#chassis-configuration)
 4. [Tire Configuration](#tire-configuration)
 5. [Power Plant Configuration](#power-plant-configuration)
-6. [Car Wars Concepts](#car-wars-concepts)
+6. [tabletop Concepts](#car-wars-concepts)
 7. [Vehicle JSON Structure](#vehicle-json-structure)
 8. [Scene JSON Structure](#scene-json-structure)
 
@@ -153,7 +153,7 @@ The chassis is the vehicle body - its size and weight.
 - Heavier = more momentum, harder to accelerate/brake, more stable
 - Lighter = quicker acceleration, easier to flip
 
-| Car Wars Chassis | Weight (lbs) | Mass (kg) |
+| tabletop Chassis | Weight (lbs) | Mass (kg) |
 |-----------------|--------------|-----------|
 | Subcompact | 1000 | 454 |
 | Compact | 1300 | 590 |
@@ -219,7 +219,7 @@ The chassis is the vehicle body - its size and weight.
 }
 ```
 
-**Standard value:** `2.0` for all tires (Car Wars physics - tire type affects damage, not grip)
+**Standard value:** `2.0` for all tires (tabletop physics - tire type affects damage, not grip)
 
 | Value | Grip Level | Use Case |
 |-------|------------|----------|
@@ -232,7 +232,7 @@ The chassis is the vehicle body - its size and weight.
 
 **Technical explanation:** Maximum friction force = mu × normal_force. With mu=2.0 and 250kg per wheel, max grip ≈ 4900 N per wheel.
 
-**Note:** In Car Wars mode, all tires use mu=2.0. Tire types (standard, heavy-duty, solid, etc.) affect durability and combat rules, not physics grip.
+**Note:** In tabletop mode, all tires use mu=2.0. Tire types (standard, heavy-duty, solid, etc.) affect durability and combat rules, not physics grip.
 
 ---
 
@@ -240,7 +240,7 @@ The chassis is the vehicle body - its size and weight.
 
 ### Power Factors (PF)
 
-**What it is:** Car Wars measure of engine power. Used to calculate acceleration and top speed.
+**What it is:** tabletop measure of engine power. Used to calculate acceleration and top speed.
 
 **Not the same as:** Horsepower, watts, or real-world engine metrics.
 
@@ -290,7 +290,7 @@ Top Speed (mph) = 360 × PF / (PF + weight_lbs)
 
 ---
 
-## Car Wars Concepts
+## tabletop Concepts
 
 ### Handling Class (HC)
 
@@ -520,6 +520,6 @@ Scene files define the arena and spawn vehicles:
 | Suspension frequency | 3.0 Hz | Very stiff (race car) |
 | Suspension damping | 0.8 | Well-damped, fast response |
 | Suspension travel | 0.10 m | Short stroke |
-| Tire friction (mu) | 2.0 | Standardized for Car Wars |
+| Tire friction (mu) | 2.0 | Standardized for tabletop |
 | Center of mass Y | -0.9 to -1.1 | Low for stability |
 | Gravity | -9.81 m/s² | Earth standard |

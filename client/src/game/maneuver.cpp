@@ -1,5 +1,5 @@
 /*
- * Car Wars Maneuver System - Kinematic Path Animation
+ * tabletop Maneuver System - Kinematic Path Animation
  *
  * Uses linear interpolation (lerp) between start and end poses.
  * Vehicle is in kinematic mode during maneuver execution.
@@ -274,9 +274,9 @@ bool maneuver_start(ManeuverAutopilot* ap,
     ap->start_heading = current_heading;
     ap->start_speed_ms = current_speed_ms;
 
-    // Car Wars turn duration is fixed at 1.0 second
+    // tabletop turn duration is fixed at 1.0 second
     // Forward distance varies with speed: distance = speed × time
-    ap->duration = 1.0f;  // One Car Wars turn = 1 second
+    ap->duration = 1.0f;  // One tabletop turn = 1 second
     ap->elapsed = 0.0f;
     ap->progress = 0.0f;
 

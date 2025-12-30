@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "description": "Car Wars vehicular weapons",
-    "source": "Car Wars Compendium 2nd Edition, Uncle Albert's Catalog",
+    "description": "tabletop vehicular weapons",
+    "source": "tabletop Compendium 2nd Edition, equipment catalog",
     "units": {
       "cost": "dollars (weapon only)",
       "weight": "lbs (loaded)",

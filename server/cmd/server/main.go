@@ -12,7 +12,7 @@ func main() {
 	port := flag.Int("port", 7777, "Server port")
 	flag.Parse()
 
-	fmt.Println("Car Wars Server v0.1")
+	fmt.Println("Arena Server v0.1")
 	fmt.Println("====================")
 	fmt.Printf("\nListening on port %d\n", *port)
 

@@ -138,10 +138,6 @@ See [LICENSE](LICENSE) for details.
 
 ## Disclaimer
 
-This is an independent fan project created for educational and personal use. It is not affiliated with, endorsed by, sponsored by, or in any way officially connected with Steve Jackson Games, the Car Wars franchise, or any of their subsidiaries or affiliates.
-
-Car Wars, AADA, Autoduel, and Uncle Albert's are trademarks of Steve Jackson Games Incorporated. All other trademarks are the property of their respective owners.
-
-The use of any trade name or trademark is for identification and reference purposes only and does not imply any association with the trademark holder.
+This is an independent project created for educational and personal use. It is inspired by classic tabletop vehicular combat games but is not affiliated with or endorsed by any game publisher.
 
 This project is provided "as is" without warranty of any kind. The author makes no representations regarding the accuracy, completeness, or suitability of this software for any purpose.

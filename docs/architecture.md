@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the technical architecture for the Car Wars Arena Duel demo. The goal is to build a minimal but extensible engine that can grow with the project.
+This document describes the technical architecture for the tabletop Arena Duel demo. The goal is to build a minimal but extensible engine that can grow with the project.
 
 ---
 

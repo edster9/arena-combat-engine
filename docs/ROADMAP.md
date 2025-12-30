@@ -1,4 +1,4 @@
-# Car Wars Arena - Development Roadmap
+# Arena Combat Engine - Development Roadmap
 
 ## Current Status (2025-12-29)
 
@@ -84,7 +84,7 @@
 
 ### Game Logic
 - Turn-based with 1-second phases
-- Car Wars rules for handling, maneuvers, and combat
+- Classic tabletop rules for handling, maneuvers, and combat
 - Handling Status (HS) tracking with control rolls
 - Difficulty values (D0-D7) for maneuvers
 
@@ -107,12 +107,11 @@ client/
 │   └── render/
 │       └── ...             # Rendering systems
 └── build/
-    └── carwars            # Executable
+    └── arena              # Executable
 ```
 
 ---
 
 ## References
-- Car Wars Compendium (2nd Edition)
-- Car Wars Vehicle Guide
+- Classic tabletop vehicular combat rules
 - Jolt Physics documentation

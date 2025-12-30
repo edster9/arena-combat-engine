@@ -1,5 +1,5 @@
 /*
- * Car Wars Maneuver System - Kinematic Path Animation
+ * tabletop Maneuver System - Kinematic Path Animation
  *
  * Executes maneuvers using kinematic interpolation along a calculated path.
  * Vehicle is switched to kinematic mode during maneuver, then back to dynamic.
@@ -7,7 +7,7 @@
  * Flow:
  * 1. Player requests maneuver while paused
  * 2. System validates speed requirements
- * 3. System calculates target position/heading from Car Wars rules
+ * 3. System calculates target position/heading from tabletop rules
  * 4. Vehicle switches to KINEMATIC mode
  * 5. Each frame: interpolate position/heading along path, use MoveKinematic
  * 6. When path complete: switch back to DYNAMIC, set velocity to match
@@ -27,7 +27,7 @@
 extern "C" {
 #endif
 
-// Car Wars scale: 1" = 15 feet = 4.572 meters
+// tabletop scale: 1" = 15 feet = 4.572 meters
 #define CW_INCH_TO_METERS 4.572f
 #define CW_QUARTER_INCH   (CW_INCH_TO_METERS * 0.25f)  // 1.143m
 #define CW_HALF_INCH      (CW_INCH_TO_METERS * 0.5f)   // 2.286m
@@ -119,7 +119,7 @@ typedef struct {
     float start_speed_ms;
     float target_speed_ms;    // Speed at END of turn (for ACCEL/BRAKE)
 
-    // Target state (calculated from Car Wars rules)
+    // Target state (calculated from tabletop rules)
     Vec3 target_position;
     float target_heading;         // Radians
 
@@ -163,7 +163,7 @@ bool maneuver_start(ManeuverAutopilot* ap,
                     float current_speed_ms);
 
 // Start a multi-phase turn - executes all phases as one continuous 1.0s animation
-// phase_indices: which Car Wars phases are active (e.g., {1, 3} for P2 and P4 at 20 mph)
+// phase_indices: which tabletop phases are active (e.g., {1, 3} for P2 and P4 at 20 mph)
 // requests: maneuver request for each active phase
 // num_phases: number of active phases (1-5)
 // Returns false if any phase validation fails

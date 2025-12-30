@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run Car Wars client
+# Run Arena client
 # OS-aware: handles WSL2, Linux, and MINGW64
 # Usage: ./run.sh [--build] [args...]
 # Output is always logged to ../last_run.log

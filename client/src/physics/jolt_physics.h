@@ -59,16 +59,16 @@ typedef struct {
     // Tire properties
     float tire_friction;     // Friction coefficient (mu), higher = more grip
 
-    // Car Wars physics - direct force application
+    // tabletop physics - direct force application
     int power_factors;            // Total power factors from power plant
     float target_accel_ms2;       // Target acceleration in m/s² (from PF/weight ratio)
     float target_0_60_seconds;    // Target 0-60 time in seconds
     float accel_force;            // Force in Newtons (mass * target_accel)
     float brake_force;            // Brake force in Newtons
-    float top_speed_ms;           // Top speed limit in m/s (from Car Wars tables)
+    float top_speed_ms;           // Top speed limit in m/s (from tabletop tables)
     char vehicle_name[64];        // Vehicle name for test output
 
-    // Car Wars handling
+    // tabletop handling
     int handling_class;           // Base HC (from chassis + suspension + tires)
 
     // Wheel mount points (legacy - used if wheel_positions all zero)
@@ -137,10 +137,10 @@ typedef struct {
     float last_applied_force;    // Force in Newtons applied this frame
     float last_traction;         // Traction factor (0-1, wheels on ground)
 
-    // Car Wars handling state (runtime)
+    // tabletop handling state (runtime)
     VehicleHandling handling;    // HC/HS tracking and control rolls
 
-    // Maneuver autopilot (for executing Car Wars maneuvers via physics)
+    // Maneuver autopilot (for executing tabletop maneuvers via physics)
     ManeuverAutopilot autopilot;
 } PhysicsVehicle;
 

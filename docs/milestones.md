@@ -8,7 +8,7 @@ Each milestone should produce something **runnable and visible**. No milestone s
 1. **Phase 1: Level Editor** - Build rendering, validate the visual aesthetic
 2. **Phase 2: Game** - Add game logic on top of proven rendering
 
-This lets us answer "Does this look like Car Wars?" before we tackle "Is this fun to play?"
+This lets us answer "Does this look like tabletop?" before we tackle "Is this fun to play?"
 
 ---
 
@@ -57,7 +57,7 @@ The Level Editor is a standalone tool that:
 
 - [x] Flat plane rendered (200x200 unit arena floor)
 - [x] Procedural grid shader (no texture files needed)
-- [x] Grid aligned to Car Wars scale (1 unit = 1 inch, major lines every 5)
+- [x] Grid aligned to tabletop scale (1 unit = 1 inch, major lines every 5)
 - [x] Floor appearance: concrete feel with noise variation
 - [x] Axis indicators (red=X, blue=Z on floor, green=Y vertical)
 - [x] Distance fog for depth perception
@@ -125,7 +125,7 @@ The Level Editor is a standalone tool that:
 
 ## Milestone E7: Visual Polish
 
-**Goal:** Does this look like Car Wars?
+**Goal:** Does this look like tabletop?
 
 - [ ] Test AI-generated textures from book references
 - [ ] Tweak lighting for mood
@@ -133,7 +133,7 @@ The Level Editor is a standalone tool that:
 - [ ] Screenshot tool (F12)
 - [ ] Compare screenshots to book art
 
-**Deliverable:** Screenshots that evoke the Car Wars aesthetic.
+**Deliverable:** Screenshots that evoke the tabletop aesthetic.
 
 ---
 
@@ -265,7 +265,7 @@ With rendering proven and arenas buildable, we add game logic.
 - [ ] UI styling (record sheet aesthetic)
 - [ ] Camera polish (smooth transitions)
 
-**Deliverable:** Something you'd show to a Car Wars fan.
+**Deliverable:** Something you'd show to a tabletop fan.
 
 ---
 
@@ -316,7 +316,7 @@ The Level Editor is complete when:
 1. Can fly through a 3D arena
 2. Can place walls, obstacles, vehicles
 3. Can save/load arena layouts
-4. Textures evoke Car Wars book art
+4. Textures evoke tabletop book art
 5. Screenshots look promising
 
 ---
@@ -330,4 +330,4 @@ The game demo is complete when:
 3. Weapons work (target, fire, damage)
 4. Someone wins
 5. You can restart and play again
-6. A Car Wars fan says "this feels right"
+6. A tabletop fan says "this feels right"

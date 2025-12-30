@@ -1,6 +1,6 @@
 /*
  * Equipment Loader Implementation
- * Loads Car Wars equipment JSON files and provides lookup
+ * Loads tabletop equipment JSON files and provides lookup
  */
 
 #include "equipment_loader.h"
@@ -422,7 +422,7 @@ float equipment_calc_top_speed_mph(const char* type, int power_factors, int tota
     float pf = (float)power_factors;
     float w = (float)total_weight_lbs;
 
-    // Car Wars formulas
+    // tabletop formulas
     if (strcmp(type, "electric") == 0 || strcmp(type, "nuclear") == 0) {
         return 360.0f * pf / (pf + w);
     } else {  // gas
@@ -440,7 +440,7 @@ int equipment_calc_accel_class(int power_factors, int total_weight_lbs) {
 
     float ratio = (float)power_factors / (float)total_weight_lbs;
 
-    // Car Wars acceleration tiers
+    // tabletop acceleration tiers
     if (ratio >= 3.0f) return 25;       // 3x weight (nuclear only)
     if (ratio >= 2.0f) return 20;       // 2x weight (nuclear only)
     if (ratio >= 1.0f) return 15;       // >= weight

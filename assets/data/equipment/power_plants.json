@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "description": "Car Wars power plants - electric and gas engines",
-    "source": "Car Wars Compendium 2nd Edition, Uncle Albert's Catalog",
+    "description": "tabletop power plants - electric and gas engines",
+    "source": "tabletop Compendium 2nd Edition, equipment catalog",
     "units": {
       "cost": "dollars",
       "weight": "lbs",
@@ -21,8 +21,8 @@
       "gas": "240 * PF / (PF + weight)"
     },
     "physics_translation": {
-      "_notes": "Conversion from Car Wars values to physics engine values",
-      "power_factors": "Car Wars reference value (read-only for display/rules)",
+      "_notes": "Conversion from tabletop values to physics engine values",
+      "power_factors": "tabletop reference value (read-only for display/rules)",
       "weight_to_mass": "lbs * 0.453592 (kg)",
       "top_speed_to_velocity": "mph * 0.44704 (m/s)"
     }

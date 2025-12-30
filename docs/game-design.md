@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Arena Duel is the core gameplay loop of Car Wars. Two or more armed vehicles enter an enclosed arena and fight until one remains operational. This document defines the mechanics for our initial demo.
+The Arena Duel is the core gameplay loop. Two or more armed vehicles enter an enclosed arena and fight until one remains operational. This document defines the mechanics for our initial demo.
 
 ---
 
@@ -88,7 +88,7 @@ Per turn, a vehicle can:
 
 ### Maneuvers
 
-Borrowing from Car Wars:
+Standard maneuver types:
 
 | Maneuver | Difficulty | Description |
 |----------|------------|-------------|
