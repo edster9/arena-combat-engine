@@ -116,17 +116,18 @@ static Vec3 calculate_end_position(Vec3 start, float rotation_y, float distance)
 
 // Get active phases for a given speed (Car Wars rules)
 // Returns bitmask: bit 0 = P1, bit 1 = P2, ..., bit 4 = P5
+// 0 mph = P3 only (for starting from stop - ACCEL only, STRAIGHT only)
 // 10 mph = P3 only (0b00100)
 // 20 mph = P2, P4 (0b01010)
 // 30 mph = P1, P3, P5 (0b10101)
 // 40 mph = P1, P2, P4, P5 (0b11011)
 // 50+ mph = all phases (0b11111)
 static int get_active_phases(int speed_mph) {
-    if (speed_mph < 5)  return 0;           // Too slow - no phases
-    if (speed_mph < 15) return 0b00100;     // 10 mph range: P3
-    if (speed_mph < 25) return 0b01010;     // 20 mph range: P2, P4
-    if (speed_mph < 35) return 0b10101;     // 30 mph range: P1, P3, P5
-    if (speed_mph < 45) return 0b11011;     // 40 mph range: P1, P2, P4, P5
+    if (speed_mph < 5)  return 0b00100;     // 0-4 mph: P3 only (starting from stop)
+    if (speed_mph < 15) return 0b00100;     // 5-14 mph (10 mph range): P3
+    if (speed_mph < 25) return 0b01010;     // 15-24 mph (20 mph range): P2, P4
+    if (speed_mph < 35) return 0b10101;     // 25-34 mph (30 mph range): P1, P3, P5
+    if (speed_mph < 45) return 0b11011;     // 35-44 mph (40 mph range): P1, P2, P4, P5
     return 0b11111;                         // 50+ mph: all phases
 }
 
@@ -830,11 +831,16 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Cruise control: V = hold current speed
+        // Cruise control: V = toggle cruise (hold current speed or cancel)
         if (input.keys_pressed[KEY_V]) {
             Entity* sel = entity_manager_get_selected(&entities);
             if (sel && sel->id < MAX_ENTITIES && entity_to_physics[sel->id] >= 0) {
-                physics_vehicle_cruise_hold(&physics, entity_to_physics[sel->id]);
+                int phys_id = entity_to_physics[sel->id];
+                if (physics_vehicle_cruise_active(&physics, phys_id)) {
+                    physics_vehicle_cruise_cancel(&physics, phys_id);
+                } else {
+                    physics_vehicle_cruise_hold(&physics, phys_id);
+                }
             } else {
                 printf("Select a vehicle first (V)\n");
             }
@@ -897,6 +903,11 @@ int main(int argc, char* argv[]) {
                         }
                     }
 
+                    // At 0 mph, force ACCEL (only option when starting from stop)
+                    if (planning.snapshot_speed < 5) {
+                        planning.speed_choice = SPEED_ACCEL;
+                    }
+
                     printf("[Turn] Paused at %d mph - phases: 0x%02X\n",
                            planning.snapshot_speed, planning.active_phases_mask);
                 }
@@ -926,11 +937,14 @@ int main(int argc, char* argv[]) {
             UIRect hold_btn = ui_rect(platform.width - 210, 100, 80, 50);
             UIRect accel_btn = ui_rect(platform.width - 115, 100, 80, 50);
 
+            // At 0 mph, only ACCEL is allowed (can't brake or hold at stop)
+            bool at_stop = (planning.snapshot_speed < 5);
+
             // Check speed button clicks
-            if (point_in_rect(mx, my, brake_btn)) {
+            if (point_in_rect(mx, my, brake_btn) && !at_stop) {
                 planning.speed_choice = SPEED_BRAKE;
                 ui_clicked = true;
-            } else if (point_in_rect(mx, my, hold_btn)) {
+            } else if (point_in_rect(mx, my, hold_btn) && !at_stop) {
                 planning.speed_choice = SPEED_HOLD;
                 ui_clicked = true;
             } else if (point_in_rect(mx, my, accel_btn)) {
@@ -951,10 +965,12 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            // Maneuver selector click handling (only when paused and phase selected)
+            // Maneuver selector click handling (only when paused, phase selected, AND not at 0 mph)
+            // At 0 mph, only STRAIGHT is allowed (no maneuver selection)
             bool can_edit_maneuver = physics_is_paused(&physics) &&
                                      planning.selected_phase >= 0 &&
-                                     ((planning.active_phases_mask >> planning.selected_phase) & 1);
+                                     ((planning.active_phases_mask >> planning.selected_phase) & 1) &&
+                                     !at_stop;
 
             if (can_edit_maneuver && !ui_clicked) {
                 // Row 1: Maneuver type buttons
@@ -1024,6 +1040,14 @@ int main(int argc, char* argv[]) {
                     printf("[Turn] No vehicle selected!\n");
                     ui_clicked = true;
                 } else {
+                    // Special case: starting from stop (0-4 mph)
+                    // - Must use ACCEL (can't BRAKE or HOLD at 0)
+                    // - Only STRAIGHT allowed (no maneuvers at 0 mph)
+                    bool starting_from_stop = (planning.snapshot_speed < 5);
+                    if (starting_from_stop) {
+                        planning.speed_choice = SPEED_ACCEL;  // Force ACCEL
+                    }
+
                     // Generic multi-phase turn execution for all speeds
                     // Build phase_indices[] and requests[] from active mask
                     int phase_indices[5];
@@ -1034,9 +1058,14 @@ int main(int argc, char* argv[]) {
                         if ((planning.active_phases_mask >> i) & 1) {
                             phase_indices[num_phases] = i;
 
-                            requests[num_phases].type = planning.phase_maneuver[i];
-                            if (requests[num_phases].type == MANEUVER_NONE) {
+                            // Force STRAIGHT when starting from stop
+                            if (starting_from_stop) {
                                 requests[num_phases].type = MANEUVER_STRAIGHT;
+                            } else {
+                                requests[num_phases].type = planning.phase_maneuver[i];
+                                if (requests[num_phases].type == MANEUVER_NONE) {
+                                    requests[num_phases].type = MANEUVER_STRAIGHT;
+                                }
                             }
                             requests[num_phases].direction = planning.phase_direction[i];
                             requests[num_phases].bend_angle = planning.phase_bend_angle[i];
@@ -1046,18 +1075,55 @@ int main(int argc, char* argv[]) {
                         }
                     }
 
+                    // Check if cruise was active before executing
+                    bool cruise_was_active = physics_vehicle_cruise_active(&physics, exec_phys_id);
+
+                    // Calculate target speed
+                    int target_speed_mph = calculate_next_speed(planning.snapshot_speed, planning.speed_choice);
+                    if (target_speed_mph < 0) target_speed_mph = 0;
+
                     if (num_phases > 0 && physics_vehicle_start_turn(&physics, exec_phys_id,
                                                                       phase_indices, requests, num_phases)) {
+                        // Apply speed change via cruise control (PENDING until maneuver completes):
+                        // - ACCEL/BRAKE: always set pending cruise to reach target speed
+                        // - HOLD: only if cruise was already active (maintain current speed)
+                        bool should_set_cruise = (planning.speed_choice != SPEED_HOLD) || cruise_was_active;
+                        if (should_set_cruise) {
+                            float target_speed_ms = target_speed_mph / 2.237f;  // mph to m/s
+                            // Use pending so cruise target only updates AFTER kinematic maneuver ends
+                            physics_vehicle_cruise_set_pending(&physics, exec_phys_id, target_speed_ms);
+                        }
+
                         physics_unpause(&physics);
 
                         // Log what we're executing
-                        printf("[Turn] Executing %d mph turn (%d phases):",
-                               planning.snapshot_speed, num_phases);
+                        const char* speed_names[] = {"BRAKE", "HOLD", "ACCEL"};
+                        printf("[Turn] Executing %d mph turn (%d phases) -> %s to %d mph:",
+                               planning.snapshot_speed, num_phases,
+                               speed_names[planning.speed_choice], target_speed_mph);
                         for (int p = 0; p < num_phases; p++) {
                             printf(" P%d=%s", phase_indices[p] + 1,
                                    maneuver_get_name(requests[p].type));
                         }
                         printf("\n");
+
+                        // Update snapshot for next turn (speed will be at target after this turn completes)
+                        planning.snapshot_speed = target_speed_mph;
+                        planning.active_phases_mask = get_active_phases(planning.snapshot_speed);
+
+                        // Reset maneuvers and select first active phase for the NEW speed
+                        for (int i = 0; i < 5; i++) {
+                            planning.phase_maneuver[i] = MANEUVER_NONE;
+                            planning.phase_direction[i] = MANEUVER_LEFT;
+                            planning.phase_bend_angle[i] = 0;
+                        }
+                        planning.selected_phase = -1;
+                        for (int i = 0; i < 5; i++) {
+                            if ((planning.active_phases_mask >> i) & 1) {
+                                planning.selected_phase = i;
+                                break;
+                            }
+                        }
                     }
                     ui_clicked = true;
                 }
@@ -1185,8 +1251,21 @@ int main(int argc, char* argv[]) {
                 e->rotation_y = rot_y;
 
                 // Store velocity for display
+                // During kinematic maneuver, interpolate between start and target speed
                 float speed_ms;
-                physics_vehicle_get_velocity(&physics, phys_id, &speed_ms);
+                if (physics_vehicle_maneuver_active(&physics, phys_id)) {
+                    const ManeuverAutopilot* ap = physics_vehicle_get_autopilot(&physics, phys_id);
+                    if (ap) {
+                        // Interpolate speed during turn (ACCEL/BRAKE changes speed during turn)
+                        float start = ap->start_speed_ms;
+                        float target = ap->target_speed_ms > 0.0f ? ap->target_speed_ms : start;
+                        speed_ms = start + (target - start) * ap->progress;
+                    } else {
+                        speed_ms = 0.0f;
+                    }
+                } else {
+                    physics_vehicle_get_velocity(&physics, phys_id, &speed_ms);
+                }
                 if (e->id < MAX_ENTITIES) {
                     car_physics[e->id].velocity = speed_ms;
                 }
@@ -1382,18 +1461,23 @@ int main(int argc, char* argv[]) {
             ui_rect(platform.width - 315, 65, 300, 100),
             UI_COLOR_BG_DARK, ui_color(0.3f, 0.3f, 0.4f, 1.0f), 1.0f, 4.0f);
 
-        // Three speed buttons (highlight selected)
+        // Three speed buttons (highlight selected, grey out at 0 mph)
         {
             float sel_border = 3.0f;
             float norm_border = 1.0f;
+            bool at_stop = (planning.snapshot_speed < 5);  // 0 mph = only ACCEL allowed
+
+            // BRAKE button - greyed out at 0 mph
             ui_draw_panel(&ui_renderer,
                 ui_rect(platform.width - 305, 100, 80, 50),
-                UI_COLOR_DANGER, UI_COLOR_WHITE,
+                at_stop ? UI_COLOR_DISABLED : UI_COLOR_DANGER, UI_COLOR_WHITE,
                 planning.speed_choice == SPEED_BRAKE ? sel_border : norm_border, 4.0f);
+            // HOLD button - greyed out at 0 mph
             ui_draw_panel(&ui_renderer,
                 ui_rect(platform.width - 210, 100, 80, 50),
-                UI_COLOR_SELECTED, UI_COLOR_WHITE,
+                at_stop ? UI_COLOR_DISABLED : UI_COLOR_SELECTED, UI_COLOR_WHITE,
                 planning.speed_choice == SPEED_HOLD ? sel_border : norm_border, 4.0f);
+            // ACCEL button - always active
             ui_draw_panel(&ui_renderer,
                 ui_rect(platform.width - 115, 100, 80, 50),
                 UI_COLOR_SAFE, UI_COLOR_WHITE,
@@ -1435,10 +1519,13 @@ int main(int argc, char* argv[]) {
                 box_color, border, border_w, 4.0f);
         }
 
-        // Maneuver selector (only when physics paused and active phase selected)
+        // Maneuver selector (only when physics paused, active phase selected, AND not at 0 mph)
+        // At 0 mph, only STRAIGHT is allowed (starting from stop)
+        bool at_stop_for_selector = (planning.snapshot_speed < 5);
         bool show_maneuver_selector = physics_is_paused(&physics) &&
                                       planning.selected_phase >= 0 &&
-                                      ((planning.active_phases_mask >> planning.selected_phase) & 1);
+                                      ((planning.active_phases_mask >> planning.selected_phase) & 1) &&
+                                      !at_stop_for_selector;
 
         if (show_maneuver_selector) {
             // Row 1: Maneuver type buttons
@@ -1572,10 +1659,12 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            // Maneuver selector labels (only when paused with active phase selected)
+            // Maneuver selector labels (only when paused with active phase selected, not at 0 mph)
+            bool at_stop_labels = (planning.snapshot_speed < 5);
             bool show_selector_labels = physics_is_paused(&physics) &&
                                         planning.selected_phase >= 0 &&
-                                        ((planning.active_phases_mask >> planning.selected_phase) & 1);
+                                        ((planning.active_phases_mask >> planning.selected_phase) & 1) &&
+                                        !at_stop_labels;
 
             if (show_selector_labels) {
                 // Row 1: Maneuver type button labels
@@ -1609,9 +1698,9 @@ int main(int argc, char* argv[]) {
             // Execute button label (moved down to Y=465)
             {
                 const char* exec_text = "EXECUTE TURN";
-                // Show warning only if too slow (no active phases)
-                if (physics_is_paused(&physics) && planning.active_phases_mask == 0 && planning.snapshot_speed > 0) {
-                    exec_text = "TOO SLOW";
+                // Special text for starting from stop
+                if (physics_is_paused(&physics) && planning.snapshot_speed < 5) {
+                    exec_text = "START CAR";
                 }
                 text_draw_centered(&text_renderer, exec_text,
                     ui_rect(platform.width - 315, 465, 300, 50), UI_COLOR_WHITE);
@@ -1705,6 +1794,11 @@ int main(int argc, char* argv[]) {
                     snprintf(col_buf, sizeof(col_buf), "F:%6.0fN %d/4", force_n, wheels_contact);
                     text_draw(&text_renderer, col_buf, col_force, status_y, UI_COLOR_WHITE);
 
+                    // Paused indicator
+                    if (physics_is_paused(&physics)) {
+                        text_draw(&text_renderer, "PAUSED", col_force + 150, status_y, UI_COLOR_CAUTION);
+                    }
+
                 } else {
                     // Column X positions for turn-based mode
                     // Match freestyle spacing for consistency
@@ -1735,6 +1829,11 @@ int main(int argc, char* argv[]) {
 
                     snprintf(col_buf, sizeof(col_buf), "Phase: P%d", planning.selected_phase + 1);
                     text_draw(&text_renderer, col_buf, col_phase, status_y, UI_COLOR_WHITE);
+
+                    // Paused indicator
+                    if (physics_is_paused(&physics)) {
+                        text_draw(&text_renderer, "PAUSED", col_phase + 100, status_y, UI_COLOR_CAUTION);
+                    }
                 }
             }
 
@@ -1813,7 +1912,7 @@ int main(int argc, char* argv[]) {
                 ty += line_h;
                 text_draw(&text_renderer, "  M         Steer mode toggle", tx, ty, UI_COLOR_WHITE);
                 ty += line_h;
-                text_draw(&text_renderer, "  V         Cruise hold", tx, ty, UI_COLOR_WHITE);
+                text_draw(&text_renderer, "  V         Cruise on/off", tx, ty, UI_COLOR_WHITE);
                 ty += line_h;
                 text_draw(&text_renderer, "  ]         Cruise +10mph", tx, ty, UI_COLOR_WHITE);
                 ty += line_h;

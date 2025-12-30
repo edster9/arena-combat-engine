@@ -715,14 +715,17 @@ bool maneuver_is_active(const ManeuverAutopilot* ap) {
 }
 
 Vec3 maneuver_get_exit_velocity(const ManeuverAutopilot* ap) {
-    // Calculate velocity in the direction of target heading at original speed
+    // Calculate velocity in the direction of target heading at TARGET speed
+    // (speed changes during the turn for ACCEL/BRAKE)
+    float exit_speed = ap->target_speed_ms > 0.0f ? ap->target_speed_ms : ap->start_speed_ms;
+
     float sin_h = sinf(ap->target_heading);
     float cos_h = cosf(ap->target_heading);
 
     Vec3 velocity;
-    velocity.x = sin_h * ap->start_speed_ms;
+    velocity.x = sin_h * exit_speed;
     velocity.y = 0.0f;
-    velocity.z = cos_h * ap->start_speed_ms;
+    velocity.z = cos_h * exit_speed;
 
     return velocity;
 }

@@ -370,9 +370,18 @@ void physics_step(PhysicsWorld* pw, float dt)
                     // Maneuver complete - switch back to dynamic mode
                     physics_vehicle_set_kinematic(pw, i, false);
 
-                    // Set exit velocity in direction of final heading
+                    // Set exit velocity at TARGET speed (speed changed during turn)
                     ::Vec3 exitVel = maneuver_get_exit_velocity(&v->autopilot);
                     physics_vehicle_set_velocity(pw, i, exitVel);
+
+                    // Apply pending cruise immediately - speed is already at target
+                    if (v->pending_cruise_active) {
+                        v->cruise_enabled = true;
+                        v->cruise_target_ms = v->pending_cruise_target_ms;
+                        v->pending_cruise_active = false;
+                        printf("Cruise: NOW %.0f mph (turn complete)\n", v->cruise_target_ms * 2.237f);
+                        fflush(stdout);
+                    }
 
                     printf("[Maneuver] Kinematic animation complete, returning control\n");
                     fflush(stdout);
@@ -776,6 +785,8 @@ int physics_create_vehicle(PhysicsWorld* pw, ::Vec3 position, float rotation_y, 
     // Reset cruise control
     v->cruise_enabled = false;
     v->cruise_target_ms = 0.0f;
+    v->pending_cruise_active = false;
+    v->pending_cruise_target_ms = 0.0f;
 
     // Initialize handling system with calculated HC
     handling_init(&v->handling, config->handling_class);
@@ -1069,6 +1080,8 @@ void physics_vehicle_respawn(PhysicsWorld* pw, int vehicle_id)
     // Reset cruise control
     v->cruise_enabled = false;
     v->cruise_target_ms = 0.0f;
+    v->pending_cruise_active = false;
+    v->pending_cruise_target_ms = 0.0f;
 }
 
 void physics_vehicle_nudge_lateral(PhysicsWorld* pw, int vehicle_id, float offset_meters)
@@ -1679,6 +1692,32 @@ float physics_vehicle_cruise_target(PhysicsWorld* pw, int vehicle_id)
     if (!v->active) return 0;
 
     return v->cruise_target_ms;
+}
+
+void physics_vehicle_cruise_set_pending(PhysicsWorld* pw, int vehicle_id, float target_ms)
+{
+    if (!pw || !pw->impl) return;
+    if (vehicle_id < 0 || vehicle_id >= MAX_PHYSICS_VEHICLES) return;
+
+    PhysicsVehicle* v = &pw->vehicles[vehicle_id];
+    if (!v->active || !v->impl) return;
+
+    // Clamp to top speed
+    float clamped = target_ms;
+    if (v->config.top_speed_ms > 0 && clamped > v->config.top_speed_ms) {
+        clamped = v->config.top_speed_ms;
+    }
+
+    // Store as pending - will be applied when maneuver completes
+    v->pending_cruise_active = true;
+    v->pending_cruise_target_ms = clamped;
+
+    // Also set the autopilot's target speed so exit velocity uses it
+    // (speed change happens DURING the turn, not after)
+    v->autopilot.target_speed_ms = clamped;
+
+    printf("Cruise: PENDING %.0f mph (speed changes during turn)\n", ms_to_mph(clamped));
+    fflush(stdout);
 }
 
 void physics_vehicle_get_traction_info(PhysicsWorld* pw, int vehicle_id, float* force_n, float* traction)

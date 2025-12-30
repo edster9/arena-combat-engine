@@ -129,6 +129,10 @@ typedef struct {
     bool cruise_enabled;         // Is cruise control active?
     float cruise_target_ms;      // Target speed in m/s
 
+    // Pending cruise (deferred until maneuver completes)
+    bool pending_cruise_active;  // Is there a pending cruise change?
+    float pending_cruise_target_ms; // Deferred target speed
+
     // Debug: last applied force (for status bar display)
     float last_applied_force;    // Force in Newtons applied this frame
     float last_traction;         // Traction factor (0-1, wheels on ground)
@@ -188,6 +192,7 @@ void physics_vehicle_cruise_snap_down(PhysicsWorld* pw, int vehicle_id);  // Sna
 void physics_vehicle_cruise_cancel(PhysicsWorld* pw, int vehicle_id);     // Disable cruise control
 bool physics_vehicle_cruise_active(PhysicsWorld* pw, int vehicle_id);     // Check if cruise is enabled
 float physics_vehicle_cruise_target(PhysicsWorld* pw, int vehicle_id);    // Get target speed (m/s)
+void physics_vehicle_cruise_set_pending(PhysicsWorld* pw, int vehicle_id, float target_ms);  // Defer cruise until maneuver completes
 
 // Get vehicle state (for rendering)
 void physics_vehicle_get_position(PhysicsWorld* pw, int vehicle_id, Vec3* pos);

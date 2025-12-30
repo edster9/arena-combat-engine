@@ -117,6 +117,7 @@ typedef struct {
     Vec3 start_position;
     float start_heading;
     float start_speed_ms;
+    float target_speed_ms;    // Speed at END of turn (for ACCEL/BRAKE)
 
     // Target state (calculated from Car Wars rules)
     Vec3 target_position;
