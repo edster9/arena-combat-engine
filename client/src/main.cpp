@@ -240,15 +240,23 @@ static void draw_ramps(BoxRenderer* r, SceneJSON* scene) {
 }
 
 // Draw physics vehicles as solid primitives (box chassis only, wheels drawn separately)
-static void draw_physics_vehicles(BoxRenderer* r, PhysicsWorld* pw, int selected_id) {
-    Vec3 chassis_color = vec3(0.8f, 0.2f, 0.2f);     // Red chassis
-    Vec3 chassis_selected = vec3(1.0f, 0.4f, 0.4f);  // Brighter when selected
+// team_for_vehicle maps physics vehicle id -> team (TEAM_RED, TEAM_BLUE, etc.)
+static void draw_physics_vehicles(BoxRenderer* r, PhysicsWorld* pw, int selected_id, Team* team_for_vehicle) {
+    // Team colors
+    Vec3 red_color = vec3(0.8f, 0.2f, 0.2f);         // Red team
+    Vec3 red_selected = vec3(1.0f, 0.4f, 0.4f);      // Red selected
+    Vec3 blue_color = vec3(0.2f, 0.4f, 0.9f);        // Blue team
+    Vec3 blue_selected = vec3(0.4f, 0.6f, 1.0f);     // Blue selected
     Vec3 front_color = vec3(0.9f, 0.9f, 0.2f);       // Yellow front indicator
 
     for (int i = 0; i < pw->vehicle_count; i++) {
         if (!pw->vehicles[i].active) continue;
 
-        Vec3 color = (i == selected_id) ? chassis_selected : chassis_color;
+        // Get team-based color
+        Team team = team_for_vehicle ? team_for_vehicle[i] : TEAM_RED;
+        Vec3 base_color = (team == TEAM_BLUE) ? blue_color : red_color;
+        Vec3 sel_color = (team == TEAM_BLUE) ? blue_selected : red_selected;
+        Vec3 color = (i == selected_id) ? sel_color : base_color;
 
         // Get chassis position and full rotation from physics
         Vec3 pos;
@@ -638,47 +646,42 @@ int main(int argc, char* argv[]) {
             platform_capture_mouse(&platform, &input, false);
         }
 
-        // Shift+number keys select vehicles and enable chase camera
-        // Without Shift, number keys do nothing (1-4 are maneuvers when paused)
+        // Number keys 1-0 select vehicles and enable chase camera
         {
-            bool shift_held = input.keys[KEY_LSHIFT] || input.keys[KEY_RSHIFT];
+            int key_to_vehicle[10] = {KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0};
 
-            if (shift_held) {
-                int key_to_vehicle[10] = {KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0};
+            for (int v = 0; v < 10; v++) {
+                if (input.keys_pressed[key_to_vehicle[v]]) {
+                    // Find entity that maps to physics vehicle v
+                    int target_phys_id = v;
+                    if (target_phys_id < physics.vehicle_count && physics.vehicles[target_phys_id].active) {
+                        // Find the entity with this physics id
+                        for (int i = 0; i < entities.count; i++) {
+                            Entity* e = &entities.entities[i];
+                            if (e->active && e->id < MAX_ENTITIES && entity_to_physics[e->id] == target_phys_id) {
+                                entity_manager_select(&entities, e->id);
+                                printf("Selected vehicle %d\n", v + 1);
 
-                for (int v = 0; v < 10; v++) {
-                    if (input.keys_pressed[key_to_vehicle[v]]) {
-                        // Find entity that maps to physics vehicle v
-                        int target_phys_id = v;
-                        if (target_phys_id < physics.vehicle_count && physics.vehicles[target_phys_id].active) {
-                            // Find the entity with this physics id
-                            for (int i = 0; i < entities.count; i++) {
-                                Entity* e = &entities.entities[i];
-                                if (e->active && e->id < MAX_ENTITIES && entity_to_physics[e->id] == target_phys_id) {
-                                    entity_manager_select(&entities, e->id);
-                                    printf("Selected vehicle %d\n", v + 1);
-
-                                    // Also enable chase camera
-                                    if (!chase_camera) {
-                                        chase_camera = true;
-                                        // Initialize chase camera from current position
-                                        Vec3 car_pos;
-                                        physics_vehicle_get_position(&physics, target_phys_id, &car_pos);
-                                        Vec3 offset = vec3_sub(camera.position, car_pos);
-                                        chase_distance = 10.0f;
-                                        chase_azimuth = atan2f(offset.x, offset.z);
-                                        float horiz_dist = sqrtf(offset.x * offset.x + offset.z * offset.z);
-                                        chase_elevation = atan2f(offset.y, horiz_dist);
-                                        if (chase_elevation < 0.175f) chase_elevation = 0.175f;
-                                        if (chase_elevation > 1.22f) chase_elevation = 1.22f;
-                                        printf("Chase camera ON\n");
-                                    }
-                                    break;
+                                // Also enable chase camera
+                                if (!chase_camera) {
+                                    chase_camera = true;
+                                    // Initialize chase camera from current position
+                                    Vec3 car_pos;
+                                    physics_vehicle_get_position(&physics, target_phys_id, &car_pos);
+                                    Vec3 offset = vec3_sub(camera.position, car_pos);
+                                    chase_distance = 10.0f;
+                                    chase_azimuth = atan2f(offset.x, offset.z);
+                                    float horiz_dist = sqrtf(offset.x * offset.x + offset.z * offset.z);
+                                    chase_elevation = atan2f(offset.y, horiz_dist);
+                                    if (chase_elevation < 0.175f) chase_elevation = 0.175f;
+                                    if (chase_elevation > 1.22f) chase_elevation = 1.22f;
+                                    printf("Chase camera ON\n");
                                 }
+                                break;
                             }
                         }
-                        break;
                     }
+                    break;
                 }
             }
         }
@@ -966,16 +969,16 @@ int main(int argc, char* argv[]) {
                                      !at_stop;
 
             if (can_edit_maneuver && !ui_clicked) {
-                // Row 1: Maneuver type buttons
-                ManeuverType maneuver_values[] = {MANEUVER_NONE, MANEUVER_DRIFT, MANEUVER_STEEP_DRIFT, MANEUVER_BEND};
-                for (int m = 0; m < 4; m++) {
-                    UIRect btn = ui_rect(platform.width - 305 + m * 75, 295, 70, 35);
+                // Row 1: Maneuver type buttons (5 buttons: STR, DFT, STP, BND, SWV)
+                ManeuverType maneuver_values[] = {MANEUVER_NONE, MANEUVER_DRIFT, MANEUVER_STEEP_DRIFT, MANEUVER_BEND, MANEUVER_SWERVE};
+                for (int m = 0; m < 5; m++) {
+                    UIRect btn = ui_rect(platform.width - 305 + m * 60, 295, 56, 35);
                     if (point_in_rect(mx, my, btn)) {
                         planning.phase_maneuver[planning.selected_phase] = maneuver_values[m];
                         // Reset direction to LEFT when changing maneuver type
                         planning.phase_direction[planning.selected_phase] = MANEUVER_LEFT;
-                        // Reset bend angle to 15 when selecting BEND
-                        if (maneuver_values[m] == MANEUVER_BEND) {
+                        // Reset bend angle to 15 when selecting BEND or SWERVE
+                        if (maneuver_values[m] == MANEUVER_BEND || maneuver_values[m] == MANEUVER_SWERVE) {
                             planning.phase_bend_angle[planning.selected_phase] = 15;
                         }
                         ui_clicked = true;
@@ -985,7 +988,7 @@ int main(int argc, char* argv[]) {
 
                 // Row 2: Direction buttons (LEFT / RIGHT)
                 ManeuverType sel_type = planning.phase_maneuver[planning.selected_phase];
-                bool needs_direction = (sel_type == MANEUVER_DRIFT || sel_type == MANEUVER_STEEP_DRIFT || sel_type == MANEUVER_BEND);
+                bool needs_direction = (sel_type == MANEUVER_DRIFT || sel_type == MANEUVER_STEEP_DRIFT || sel_type == MANEUVER_BEND || sel_type == MANEUVER_SWERVE);
 
                 if (needs_direction && !ui_clicked) {
                     UIRect left_btn = ui_rect(platform.width - 305, 340, 145, 35);
@@ -1000,8 +1003,8 @@ int main(int argc, char* argv[]) {
                     }
                 }
 
-                // Row 3: Bend angle buttons (15, 30, 45)
-                if (sel_type == MANEUVER_BEND && !ui_clicked) {
+                // Row 3: Bend angle buttons (15, 30, 45) - for BEND and SWERVE
+                if ((sel_type == MANEUVER_BEND || sel_type == MANEUVER_SWERVE) && !ui_clicked) {
                     int angles[] = {15, 30, 45};
                     for (int a = 0; a < 3; a++) {
                         UIRect btn = ui_rect(platform.width - 305 + a * 100, 385, 95, 35);
@@ -1351,8 +1354,23 @@ int main(int argc, char* argv[]) {
             Entity* sel = entity_manager_get_selected(&entities);
             int selected_phys_id = (sel && sel->id < MAX_ENTITIES) ? entity_to_physics[sel->id] : -1;
 
+            // Build team mapping for physics vehicles (physics_id -> team)
+            Team team_for_vehicle[MAX_PHYSICS_VEHICLES];
+            for (int i = 0; i < MAX_PHYSICS_VEHICLES; i++) {
+                team_for_vehicle[i] = TEAM_RED;  // Default
+            }
+            for (int i = 0; i < entities.count; i++) {
+                Entity* e = &entities.entities[i];
+                if (e->active && e->id < MAX_ENTITIES) {
+                    int phys_id = entity_to_physics[e->id];
+                    if (phys_id >= 0 && phys_id < MAX_PHYSICS_VEHICLES) {
+                        team_for_vehicle[phys_id] = e->team;
+                    }
+                }
+            }
+
             // Render physics vehicles as solid primitives (physics-first approach)
-            draw_physics_vehicles(&box_renderer, &physics, selected_phys_id);
+            draw_physics_vehicles(&box_renderer, &physics, selected_phys_id, team_for_vehicle);
         }
         box_renderer_end(&box_renderer);
 
@@ -1450,48 +1468,53 @@ int main(int argc, char* argv[]) {
             UI_COLOR_BG_DARK, UI_COLOR_ACCENT, 1.0f, 4.0f);
 
         // Speed control section
+        // In freestyle mode, show controls as disabled
+        bool turn_mode = physics_is_paused(&physics);
+        UIColor section_border = turn_mode ? ui_color(0.3f, 0.3f, 0.4f, 1.0f) : ui_color(0.2f, 0.2f, 0.25f, 1.0f);
+
         ui_draw_panel(&ui_renderer,
             ui_rect(platform.width - 315, 65, 300, 100),
-            UI_COLOR_BG_DARK, ui_color(0.3f, 0.3f, 0.4f, 1.0f), 1.0f, 4.0f);
+            UI_COLOR_BG_DARK, section_border, 1.0f, 4.0f);
 
-        // Three speed buttons (highlight selected, grey out at 0 mph)
+        // Three speed buttons (highlight selected, grey out at 0 mph or in freestyle mode)
         {
             float sel_border = 3.0f;
             float norm_border = 1.0f;
             bool at_stop = (planning.snapshot_speed < 5);  // 0 mph = only ACCEL allowed
+            bool disabled = !turn_mode;  // Disable all in freestyle mode
 
-            // BRAKE button - greyed out at 0 mph
+            // BRAKE button - greyed out at 0 mph or freestyle
             ui_draw_panel(&ui_renderer,
                 ui_rect(platform.width - 305, 100, 80, 50),
-                at_stop ? UI_COLOR_DISABLED : UI_COLOR_DANGER, UI_COLOR_WHITE,
-                planning.speed_choice == SPEED_BRAKE ? sel_border : norm_border, 4.0f);
-            // HOLD button - greyed out at 0 mph
+                (disabled || at_stop) ? UI_COLOR_DISABLED : UI_COLOR_DANGER, UI_COLOR_WHITE,
+                (!disabled && planning.speed_choice == SPEED_BRAKE) ? sel_border : norm_border, 4.0f);
+            // HOLD button - greyed out at 0 mph or freestyle
             ui_draw_panel(&ui_renderer,
                 ui_rect(platform.width - 210, 100, 80, 50),
-                at_stop ? UI_COLOR_DISABLED : UI_COLOR_SELECTED, UI_COLOR_WHITE,
-                planning.speed_choice == SPEED_HOLD ? sel_border : norm_border, 4.0f);
-            // ACCEL button - always active
+                (disabled || at_stop) ? UI_COLOR_DISABLED : UI_COLOR_SELECTED, UI_COLOR_WHITE,
+                (!disabled && planning.speed_choice == SPEED_HOLD) ? sel_border : norm_border, 4.0f);
+            // ACCEL button - greyed out in freestyle
             ui_draw_panel(&ui_renderer,
                 ui_rect(platform.width - 115, 100, 80, 50),
-                UI_COLOR_SAFE, UI_COLOR_WHITE,
-                planning.speed_choice == SPEED_ACCEL ? sel_border : norm_border, 4.0f);
+                disabled ? UI_COLOR_DISABLED : UI_COLOR_SAFE, UI_COLOR_WHITE,
+                (!disabled && planning.speed_choice == SPEED_ACCEL) ? sel_border : norm_border, 4.0f);
         }
 
         // Phase boxes section (enlarged to fit maneuver selector below)
         ui_draw_panel(&ui_renderer,
             ui_rect(platform.width - 315, 175, 300, 280),
-            UI_COLOR_BG_DARK, ui_color(0.3f, 0.3f, 0.4f, 1.0f), 1.0f, 4.0f);
+            UI_COLOR_BG_DARK, section_border, 1.0f, 4.0f);
 
-        // 5 phase boxes (highlight selected, grey out inactive)
+        // 5 phase boxes (highlight selected, grey out inactive or in freestyle mode)
         for (int i = 0; i < 5; i++) {
-            bool is_active = (planning.active_phases_mask >> i) & 1;
-            bool is_selected = (i == planning.selected_phase);
+            bool is_active = turn_mode && ((planning.active_phases_mask >> i) & 1);
+            bool is_selected = turn_mode && (i == planning.selected_phase);
 
             UIColor box_color, border;
             float border_w;
 
             if (!is_active) {
-                // Inactive phase - greyed out
+                // Inactive phase or freestyle mode - greyed out
                 box_color = ui_color(0.15f, 0.15f, 0.2f, 1.0f);  // Dark grey
                 border = ui_color(0.25f, 0.25f, 0.3f, 1.0f);     // Dim border
                 border_w = 1.0f;
@@ -1521,23 +1544,23 @@ int main(int argc, char* argv[]) {
                                       !at_stop_for_selector;
 
         if (show_maneuver_selector) {
-            // Row 1: Maneuver type buttons
-            const char* maneuver_types[] = {"STR", "DFT", "STP", "BND"};
-            ManeuverType maneuver_values[] = {MANEUVER_NONE, MANEUVER_DRIFT, MANEUVER_STEEP_DRIFT, MANEUVER_BEND};
+            // Row 1: Maneuver type buttons (5 buttons: STR, DFT, STP, BND, SWV)
+            const char* maneuver_types[] = {"STR", "DFT", "STP", "BND", "SWV"};
+            ManeuverType maneuver_values[] = {MANEUVER_NONE, MANEUVER_DRIFT, MANEUVER_STEEP_DRIFT, MANEUVER_BEND, MANEUVER_SWERVE};
             int current_maneuver = planning.phase_maneuver[planning.selected_phase];
 
-            for (int m = 0; m < 4; m++) {
+            for (int m = 0; m < 5; m++) {
                 bool is_sel = (current_maneuver == maneuver_values[m]);
                 UIColor btn_color = is_sel ? UI_COLOR_SELECTED : ui_color(0.2f, 0.2f, 0.3f, 1.0f);
                 UIColor btn_border = is_sel ? UI_COLOR_WHITE : ui_color(0.4f, 0.4f, 0.5f, 1.0f);
                 ui_draw_panel(&ui_renderer,
-                    ui_rect(platform.width - 305 + m * 75, 295, 70, 35),
+                    ui_rect(platform.width - 305 + m * 60, 295, 56, 35),
                     btn_color, btn_border, is_sel ? 2.0f : 1.0f, 4.0f);
             }
 
             // Row 2: Direction buttons (only if maneuver needs direction)
             ManeuverType sel_type = (ManeuverType)current_maneuver;
-            bool needs_direction = (sel_type == MANEUVER_DRIFT || sel_type == MANEUVER_STEEP_DRIFT || sel_type == MANEUVER_BEND);
+            bool needs_direction = (sel_type == MANEUVER_DRIFT || sel_type == MANEUVER_STEEP_DRIFT || sel_type == MANEUVER_BEND || sel_type == MANEUVER_SWERVE);
 
             if (needs_direction) {
                 ManeuverDirection current_dir = planning.phase_direction[planning.selected_phase];
@@ -1556,8 +1579,8 @@ int main(int argc, char* argv[]) {
                     right_sel ? 2.0f : 1.0f, 4.0f);
             }
 
-            // Row 3: Bend angle buttons (only if BEND selected)
-            if (sel_type == MANEUVER_BEND) {
+            // Row 3: Bend angle buttons (for BEND or SWERVE)
+            if (sel_type == MANEUVER_BEND || sel_type == MANEUVER_SWERVE) {
                 int angles[] = {15, 30, 45};
                 int current_angle = planning.phase_bend_angle[planning.selected_phase];
 
@@ -1573,9 +1596,10 @@ int main(int argc, char* argv[]) {
         }
 
         // Execute button (moved down to accommodate maneuver selector)
+        // Disabled in freestyle mode
         ui_draw_panel(&ui_renderer,
             ui_rect(platform.width - 315, 465, 300, 50),
-            UI_COLOR_ACCENT, UI_COLOR_WHITE, 2.0f, 4.0f);
+            turn_mode ? UI_COLOR_ACCENT : UI_COLOR_DISABLED, UI_COLOR_WHITE, 2.0f, 4.0f);
 
         // Bottom status bar (two rows)
         ui_draw_panel(&ui_renderer,
@@ -1644,6 +1668,10 @@ int main(int argc, char* argv[]) {
                         snprintf(maneuver_str, sizeof(maneuver_str), "B%d%c",
                                  planning.phase_bend_angle[i],
                                  d == MANEUVER_LEFT ? 'L' : 'R');
+                    } else if (m == MANEUVER_SWERVE) {
+                        snprintf(maneuver_str, sizeof(maneuver_str), "W%d%c",
+                                 planning.phase_bend_angle[i],
+                                 d == MANEUVER_LEFT ? 'L' : 'R');
                     }
 
                     UIRect box_bot = ui_rect(platform.width - 305 + i * 58, 250, 52, 25);
@@ -1660,16 +1688,16 @@ int main(int argc, char* argv[]) {
                                         !at_stop_labels;
 
             if (show_selector_labels) {
-                // Row 1: Maneuver type button labels
-                const char* type_labels[] = {"STR", "DFT", "STP", "BND"};
-                for (int m = 0; m < 4; m++) {
-                    UIRect btn = ui_rect(platform.width - 305 + m * 75, 295, 70, 35);
+                // Row 1: Maneuver type button labels (5 buttons)
+                const char* type_labels[] = {"STR", "DFT", "STP", "BND", "SWV"};
+                for (int m = 0; m < 5; m++) {
+                    UIRect btn = ui_rect(platform.width - 305 + m * 60, 295, 56, 35);
                     text_draw_centered(&text_renderer, type_labels[m], btn, UI_COLOR_WHITE);
                 }
 
                 // Row 2: Direction labels (only if maneuver needs direction)
                 ManeuverType sel_type = planning.phase_maneuver[planning.selected_phase];
-                bool needs_direction = (sel_type == MANEUVER_DRIFT || sel_type == MANEUVER_STEEP_DRIFT || sel_type == MANEUVER_BEND);
+                bool needs_direction = (sel_type == MANEUVER_DRIFT || sel_type == MANEUVER_STEEP_DRIFT || sel_type == MANEUVER_BEND || sel_type == MANEUVER_SWERVE);
 
                 if (needs_direction) {
                     text_draw_centered(&text_renderer, "LEFT",
@@ -1678,8 +1706,8 @@ int main(int argc, char* argv[]) {
                         ui_rect(platform.width - 155, 340, 145, 35), UI_COLOR_WHITE);
                 }
 
-                // Row 3: Bend angle labels (only if BEND selected)
-                if (sel_type == MANEUVER_BEND) {
+                // Row 3: Bend angle labels (if BEND or SWERVE selected)
+                if (sel_type == MANEUVER_BEND || sel_type == MANEUVER_SWERVE) {
                     const char* angle_labels[] = {"15", "30", "45"};
                     for (int a = 0; a < 3; a++) {
                         UIRect btn = ui_rect(platform.width - 305 + a * 100, 385, 95, 35);
@@ -1689,15 +1717,8 @@ int main(int argc, char* argv[]) {
             }
 
             // Execute button label (moved down to Y=465)
-            {
-                const char* exec_text = "EXECUTE TURN";
-                // Special text for starting from stop
-                if (physics_is_paused(&physics) && planning.snapshot_speed < 5) {
-                    exec_text = "START CAR";
-                }
-                text_draw_centered(&text_renderer, exec_text,
-                    ui_rect(platform.width - 315, 465, 300, 50), UI_COLOR_WHITE);
-            }
+            text_draw_centered(&text_renderer, "EXECUTE TURN",
+                ui_rect(platform.width - 315, 465, 300, 50), UI_COLOR_WHITE);
 
             // Status bar text - two rows with clear labels
             // Row 1: Mode, Vehicle, Speed, Target (common to both modes)
@@ -1847,6 +1868,9 @@ int main(int argc, char* argv[]) {
                         } else if (m == MANEUVER_BEND) {
                             snprintf(col_buf, sizeof(col_buf), "Maneuver: Bend %d %s",
                                      planning.phase_bend_angle[planning.selected_phase], dir_str);
+                        } else if (m == MANEUVER_SWERVE) {
+                            snprintf(col_buf, sizeof(col_buf), "Maneuver: Swerve %d %s",
+                                     planning.phase_bend_angle[planning.selected_phase], dir_str);
                         } else {
                             snprintf(col_buf, sizeof(col_buf), "Maneuver: Straight");
                         }
@@ -1904,22 +1928,14 @@ int main(int argc, char* argv[]) {
                 ty += line_h;
                 text_draw(&text_renderer, "  LMB       Click select", tx, ty, UI_COLOR_WHITE);
                 ty += line_h;
-                text_draw(&text_renderer, "  Shift+num Select + chase", tx, ty, UI_COLOR_WHITE);
+                text_draw(&text_renderer, "  1-0       Select vehicle + chase", tx, ty, UI_COLOR_WHITE);
                 ty += line_h * 1.3f;
 
-                text_draw(&text_renderer, "MANEUVERS (paused)", tx, ty, UI_COLOR_CAUTION);
+                text_draw(&text_renderer, "TURN MODE (TAB)", tx, ty, UI_COLOR_CAUTION);
                 ty += line_h;
                 text_draw(&text_renderer, "  TAB       Pause/Unpause", tx, ty, UI_COLOR_WHITE);
                 ty += line_h;
-                text_draw(&text_renderer, "  1/2       Drift L/R", tx, ty, UI_COLOR_WHITE);
-                ty += line_h;
-                text_draw(&text_renderer, "  3/4       Steep Drift L/R", tx, ty, UI_COLOR_WHITE);
-                ty += line_h;
-                text_draw(&text_renderer, "  5/6       Bend 15 L/R", tx, ty, UI_COLOR_WHITE);
-                ty += line_h;
-                text_draw(&text_renderer, "  7/8       Bend 30 L/R", tx, ty, UI_COLOR_WHITE);
-                ty += line_h;
-                text_draw(&text_renderer, "  9         Bend 45 L", tx, ty, UI_COLOR_WHITE);
+                text_draw(&text_renderer, "  (Use GUI to declare maneuvers)", tx, ty, UI_COLOR_DISABLED);
                 ty += line_h * 1.3f;
 
                 text_draw(&text_renderer, "GAMEPLAY", tx, ty, UI_COLOR_CAUTION);

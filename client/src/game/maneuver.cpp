@@ -231,6 +231,41 @@ static void calculate_target(ManeuverAutopilot* ap) {
             return;  // Early return - we calculated target directly
         }
 
+        case MANEUVER_SWERVE: {
+            // SWERVE = D1 drift + Bend in OPPOSITE direction, combined in one phase
+            // Drift is opposite to bend: "Swerve Left" = drift RIGHT then bend LEFT
+            float drift_lateral = -CW_QUARTER_INCH * dir;  // Opposite to bend direction
+            float bend_rad = (float)ap->request.bend_angle * (PI / 180.0f);
+            heading_change = bend_rad * dir;
+
+            // Use same arc geometry as BEND (so car starts ON the arc)
+            ap->arc_radius = fwd_dist / bend_rad;
+            ap->arc_angle = bend_rad * dir;
+            ap->is_arc_path = true;
+
+            // Arc center is at radius distance perpendicular to heading (same as BEND)
+            ap->arc_center.x = ap->start_position.x + right_x * ap->arc_radius * dir;
+            ap->arc_center.y = ap->start_position.y;
+            ap->arc_center.z = ap->start_position.z + right_z * ap->arc_radius * dir;
+
+            // Calculate where pure bend would end
+            float start_angle_from_center = ap->start_heading - (PI / 2.0f) * dir;
+            float end_angle_from_center = start_angle_from_center + ap->arc_angle;
+            float bend_end_x = ap->arc_center.x + ap->arc_radius * sinf(end_angle_from_center);
+            float bend_end_z = ap->arc_center.z + ap->arc_radius * cosf(end_angle_from_center);
+
+            // Add drift offset in the FINAL heading direction
+            float end_heading = ap->start_heading + heading_change;
+            float end_right_x = cosf(end_heading);
+            float end_right_z = -sinf(end_heading);
+
+            ap->target_position.x = bend_end_x + end_right_x * drift_lateral;
+            ap->target_position.y = ap->start_position.y;
+            ap->target_position.z = bend_end_z + end_right_z * drift_lateral;
+            ap->target_heading = end_heading;
+            return;
+        }
+
         case MANEUVER_BOOTLEGGER:
             heading_change = PI * dir;  // 180° turn
             lateral = 0.0f;
@@ -423,6 +458,41 @@ static void calculate_phase_target(TurnPhase* phase, float speed_ms, float phase
             return;
         }
 
+        case MANEUVER_SWERVE: {
+            // SWERVE = D1 drift + Bend in OPPOSITE direction, combined in one phase
+            // Drift is opposite to bend: "Swerve Left" = drift RIGHT then bend LEFT
+            float drift_lateral = -CW_QUARTER_INCH * dir;  // Opposite to bend direction
+            float bend_rad = (float)phase->request.bend_angle * (PI / 180.0f);
+            heading_change = bend_rad * dir;
+
+            // Same arc geometry as BEND (car starts ON the arc)
+            phase->arc_radius = fwd_dist / bend_rad;
+            phase->arc_angle = bend_rad * dir;
+            phase->is_arc_path = true;
+
+            // Arc center at radius distance perpendicular to heading (same as BEND)
+            phase->arc_center.x = phase->start_position.x + right_x * phase->arc_radius * dir;
+            phase->arc_center.y = phase->start_position.y;
+            phase->arc_center.z = phase->start_position.z + right_z * phase->arc_radius * dir;
+
+            // Calculate where pure bend would end
+            float start_angle_from_center = phase->start_heading - (PI / 2.0f) * dir;
+            float end_angle_from_center = start_angle_from_center + phase->arc_angle;
+            float bend_end_x = phase->arc_center.x + phase->arc_radius * sinf(end_angle_from_center);
+            float bend_end_z = phase->arc_center.z + phase->arc_radius * cosf(end_angle_from_center);
+
+            // Add drift offset in the FINAL heading direction
+            float end_heading = phase->start_heading + heading_change;
+            float end_right_x = cosf(end_heading);
+            float end_right_z = -sinf(end_heading);
+
+            phase->target_position.x = bend_end_x + end_right_x * drift_lateral;
+            phase->target_position.y = phase->start_position.y;
+            phase->target_position.z = bend_end_z + end_right_z * drift_lateral;
+            phase->target_heading = end_heading;
+            return;
+        }
+
         case MANEUVER_BOOTLEGGER:
             heading_change = PI * dir;
             lateral = 0.0f;
@@ -556,7 +626,7 @@ bool maneuver_start_turn(ManeuverAutopilot* ap,
 // Interpolate within a single phase
 static void interpolate_phase(ManeuverAutopilot* ap, const TurnPhase* phase, float local_t) {
     if (phase->is_arc_path) {
-        // ARC INTERPOLATION for bends
+        // ARC INTERPOLATION for bends and swerves
         float dir = (float)phase->request.direction;
 
         // Angle from center at start (perpendicular to heading, pointing away)
@@ -573,6 +643,59 @@ static void interpolate_phase(ManeuverAutopilot* ap, const TurnPhase* phase, flo
 
         // Heading is tangent to arc
         ap->current_pose.heading = phase->start_heading + current_arc_angle;
+
+        // SWERVE: drift FIRST, then bend (per compendium: "drift must be performed before the bend")
+        // Drift is OPPOSITE to bend direction (swerve left = drift right then bend left)
+        if (phase->request.type == MANEUVER_SWERVE) {
+            float drift_lateral = -CW_QUARTER_INCH * dir;  // Opposite to bend direction
+
+            // Drift happens in first 20% of the phase, bend in remaining 80%
+            const float DRIFT_PORTION = 0.2f;
+
+            if (local_t < DRIFT_PORTION) {
+                // DRIFT PHASE: move laterally while going forward (no heading change yet)
+                float drift_t = local_t / DRIFT_PORTION;  // 0 to 1 within drift portion
+
+                // Override arc position - do linear drift instead
+                float drift_fwd = phase->arc_radius * phase->arc_angle * DRIFT_PORTION * drift_t;  // Forward progress
+                float drift_lat = drift_lateral * drift_t;  // Lateral progress
+
+                float sin_h = sinf(phase->start_heading);
+                float cos_h = cosf(phase->start_heading);
+                float right_x = cos_h;
+                float right_z = -sin_h;
+
+                ap->current_pose.position.x = phase->start_position.x + sin_h * drift_fwd + right_x * drift_lat;
+                ap->current_pose.position.z = phase->start_position.z + cos_h * drift_fwd + right_z * drift_lat;
+                ap->current_pose.heading = phase->start_heading;  // No heading change during drift
+            } else {
+                // BEND PHASE: follow arc from drifted position
+                float bend_t = (local_t - DRIFT_PORTION) / (1.0f - DRIFT_PORTION);  // 0 to 1 within bend portion
+
+                // Calculate drifted start position (where drift ended)
+                float drift_fwd = phase->arc_radius * phase->arc_angle * DRIFT_PORTION;
+                float sin_h = sinf(phase->start_heading);
+                float cos_h = cosf(phase->start_heading);
+                float right_x = cos_h;
+                float right_z = -sin_h;
+
+                float drifted_x = phase->start_position.x + sin_h * drift_fwd + right_x * drift_lateral;
+                float drifted_z = phase->start_position.z + cos_h * drift_fwd + right_z * drift_lateral;
+
+                // New arc center from drifted position
+                float arc_center_x = drifted_x + right_x * phase->arc_radius * dir;
+                float arc_center_z = drifted_z + right_z * phase->arc_radius * dir;
+
+                // Interpolate along the arc from drifted position
+                float arc_start_angle = phase->start_heading - (PI / 2.0f) * dir;
+                float current_arc_angle = phase->arc_angle * bend_t;
+                float current_angle = arc_start_angle + current_arc_angle;
+
+                ap->current_pose.position.x = arc_center_x + phase->arc_radius * sinf(current_angle);
+                ap->current_pose.position.z = arc_center_z + phase->arc_radius * cosf(current_angle);
+                ap->current_pose.heading = phase->start_heading + current_arc_angle;
+            }
+        }
     } else {
         // LINEAR INTERPOLATION for drifts and straight
         ap->current_pose.position = vec3_lerp(phase->start_position, phase->target_position, local_t);
