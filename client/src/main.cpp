@@ -1,11 +1,20 @@
 /*
  * Arena - Vehicular Combat Game
- * Combined editor and game - pause to plan, play to execute
  *
- * Milestone E7: Turn Planning UI + Execute (Teleport)
- * Milestone E8: Freestyle Physics Mode
- * Milestone E9: ODE Physics with Suspension
+ * Branch: one-phase-physics-scripts
+ * Transitioning to physics-based execution with Lua Reflex Scripts.
+ * Turn-based kinematic system is DISABLED pending new implementation.
+ *
+ * See docs/proposals/ for the new architecture.
  */
+
+// ============================================================================
+// TURN-BASED SYSTEM: DISABLED
+// The kinematic 5-phase turn system is disabled while we implement
+// physics-based execution with Reflex Scripts (Lua).
+// Set to 1 to re-enable legacy turn mode (not recommended).
+// ============================================================================
+#define TURN_MODE_ENABLED 0
 
 #include "platform/platform.h"
 #include "math/vec3.h"
@@ -863,13 +872,20 @@ int main(int argc, char* argv[]) {
         }
 
         // ========== PHYSICS PAUSE ==========
-        // TAB = toggle physics pause
+        // TAB = toggle physics pause (TURN MODE DISABLED)
+#if TURN_MODE_ENABLED
         // When pausing: snapshot speed and calculate active phases for turn declaration
         if (input.keys_pressed[KEY_TAB]) {
             if (physics_is_paused(&physics)) {
                 physics_unpause(&physics);
             } else {
                 physics_pause(&physics);
+#else
+        // Turn mode disabled - TAB does nothing
+        if (false && input.keys_pressed[KEY_TAB]) {
+            if (false) {
+            } else {
+#endif
 
                 // Snapshot speed and calculate active phases when pausing
                 Entity* sel_for_pause = entity_manager_get_selected(&entities);

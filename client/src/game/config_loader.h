@@ -27,6 +27,22 @@ typedef enum {
     VEHICLE_CLASS_UNKNOWN
 } VehicleClass;
 
+// Axle position (semantic - front-to-back ordering)
+typedef enum {
+    AXLE_POSITION_FRONT = 0,    // Frontmost axle
+    AXLE_POSITION_REAR,         // Rearmost axle
+    AXLE_POSITION_MIDDLE,       // Middle axle (for 3+ axle vehicles)
+    AXLE_POSITION_UNKNOWN
+} AxlePosition;
+
+// Wheel side (semantic - left/right relative to vehicle forward)
+typedef enum {
+    WHEEL_SIDE_LEFT = 0,        // Left side (positive Z in vehicle coords)
+    WHEEL_SIDE_RIGHT,           // Right side (negative Z in vehicle coords)
+    WHEEL_SIDE_CENTER,          // Center wheel (motorcycles, some trucks)
+    WHEEL_SIDE_UNKNOWN
+} WheelSide;
+
 // Individual wheel definition (v2 format)
 typedef struct {
     char id[16];          // Wheel identifier (e.g., "FL", "RR", "RL2")
@@ -34,6 +50,9 @@ typedef struct {
     float radius;         // Wheel radius in meters
     float width;          // Wheel width in meters
     float mass;           // Wheel mass in kg
+    // Semantic info (populated during config loading)
+    WheelSide side;       // Left/right/center position
+    int axle_index;       // Index into axles[] array (-1 if not assigned)
 } WheelDef;
 
 // Axle definition (v2 format)
@@ -51,6 +70,9 @@ typedef struct {
     bool has_suspension;                  // True if axle specifies its own suspension
     // Per-axle brakes
     float brake_force_multiplier;         // Brake force = mass * multiplier
+    // Semantic info
+    AxlePosition position;                // Front/rear/middle (for handbrake, ABS logic)
+    bool has_handbrake;                   // Handbrake affects this axle (typically rear)
 } AxleDef;
 
 // Wheel defaults (v2 format) - values used when wheel doesn't specify its own

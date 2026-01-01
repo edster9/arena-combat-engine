@@ -20,8 +20,10 @@
 #define WHEEL_RL 2  // Rear Left
 #define WHEEL_RR 3  // Rear Right
 
-// Vehicle configuration - "matchbox car" physics model
-// Wheels are unpowered - acceleration comes from direct body force
+// Vehicle configuration
+// Supports two modes:
+// 1. use_linear_accel=true: "matchbox car" - direct force F=ma, wheels unpowered
+// 2. use_linear_accel=false: Real drivetrain - engine torque through gearbox
 typedef struct {
     // Chassis
     float chassis_mass;      // kg (includes power plant weight)
@@ -37,6 +39,7 @@ typedef struct {
     float wheel_widths[4];   // Width per wheel (meters)
     float wheel_masses[4];   // Mass per wheel (kg)
     bool wheel_steering[4];  // Which wheels can steer
+    bool wheel_driven[4];    // Which wheels are powered (for drivetrain mode)
     float wheel_steer_angles[4]; // Max steer angle per wheel (radians)
 
     // Per-wheel suspension (Jolt style: frequency/damping)
@@ -59,7 +62,27 @@ typedef struct {
     // Tire properties
     float tire_friction;     // Friction coefficient (mu), higher = more grip
 
-    // tabletop physics - direct force application
+    // ========== ENGINE & TRANSMISSION ==========
+    // Used when use_linear_accel = false (real drivetrain mode)
+    float engine_max_torque;      // Peak torque in Nm
+    float engine_max_rpm;         // Redline RPM
+    float engine_idle_rpm;        // Idle RPM (default 1000)
+
+    // Transmission/gearbox
+    #define MAX_CONFIG_GEARS 8
+    float gear_ratios[MAX_CONFIG_GEARS];     // Forward gear ratios
+    int gear_count;                           // Number of forward gears
+    float reverse_ratios[MAX_CONFIG_GEARS];  // Reverse gear ratios
+    int reverse_count;                        // Number of reverse gears
+    float differential_ratio;                 // Final drive ratio
+    bool use_config_transmission;            // If true, use these values instead of Jolt defaults
+
+    // ========== PHYSICS MODE ==========
+    // use_linear_accel = true:  "Matchbox car" mode - constant F=ma acceleration
+    // use_linear_accel = false: Real drivetrain - engine torque through gearbox
+    bool use_linear_accel;
+
+    // Linear acceleration mode (when use_linear_accel = true)
     int power_factors;            // Total power factors from power plant
     float target_accel_ms2;       // Target acceleration in m/s² (from PF/weight ratio)
     float target_0_60_seconds;    // Target 0-60 time in seconds
@@ -68,7 +91,7 @@ typedef struct {
     float top_speed_ms;           // Top speed limit in m/s (from tabletop tables)
     char vehicle_name[64];        // Vehicle name for test output
 
-    // tabletop handling
+    // Handling class (used in both modes)
     int handling_class;           // Base HC (from chassis + suspension + tires)
 
     // Wheel mount points (legacy - used if wheel_positions all zero)
@@ -106,6 +129,9 @@ typedef struct {
     float throttle;          // Current throttle (0 to 1)
     float reverse;           // Current reverse (0 to 1)
     float brake;             // Current brake (0 to 1)
+    float wheel_brake[4];    // Per-wheel brake (0 to 1), for ABS control
+    bool use_per_wheel_brake; // If true, use wheel_brake[] instead of brake
+    float handbrake;         // Handbrake (0 to 1), affects handbrake axles only
     float engine_rpm;        // Engine spin-up state (0-1): ramps up 1.5s, decays 3s
     float reverse_rpm;       // Reverse engine state (0-1): same behavior
 
@@ -181,6 +207,9 @@ void physics_vehicle_set_steering(PhysicsWorld* pw, int vehicle_id, float steeri
 void physics_vehicle_set_throttle(PhysicsWorld* pw, int vehicle_id, float throttle);  // 0 to 1
 void physics_vehicle_set_reverse(PhysicsWorld* pw, int vehicle_id, float reverse);    // 0 to 1
 void physics_vehicle_set_brake(PhysicsWorld* pw, int vehicle_id, float brake);        // 0 to 1
+void physics_vehicle_set_handbrake(PhysicsWorld* pw, int vehicle_id, float handbrake); // 0 to 1 (affects handbrake axles)
+void physics_vehicle_set_wheel_brake(PhysicsWorld* pw, int vehicle_id, int wheel_idx, float brake); // Per-wheel brake for ABS
+void physics_vehicle_clear_per_wheel_brake(PhysicsWorld* pw, int vehicle_id);  // Disable per-wheel mode, use global brake
 void physics_vehicle_respawn(PhysicsWorld* pw, int vehicle_id);  // Reset to spawn position
 void physics_vehicle_start_accel_test(PhysicsWorld* pw, int vehicle_id);  // Start 0-60 acceleration test
 

@@ -290,6 +290,23 @@ static ParsedTireConfig* find_parsed_tire(const char* id) {
 }
 
 // Parse wheels array (uses defaults.wheel for values not specified)
+// Parse wheel side from string
+static WheelSide parse_wheel_side(const char* str) {
+    if (!str) return WHEEL_SIDE_UNKNOWN;
+    if (strcmp(str, "left") == 0 || strcmp(str, "L") == 0) return WHEEL_SIDE_LEFT;
+    if (strcmp(str, "right") == 0 || strcmp(str, "R") == 0) return WHEEL_SIDE_RIGHT;
+    if (strcmp(str, "center") == 0 || strcmp(str, "C") == 0) return WHEEL_SIDE_CENTER;
+    return WHEEL_SIDE_UNKNOWN;
+}
+
+// Infer wheel side from Z position (positive Z = left, negative Z = right)
+static WheelSide infer_wheel_side(float z_pos) {
+    const float threshold = 0.1f;  // 10cm tolerance for center wheels
+    if (z_pos > threshold) return WHEEL_SIDE_LEFT;
+    if (z_pos < -threshold) return WHEEL_SIDE_RIGHT;
+    return WHEEL_SIDE_CENTER;
+}
+
 static void parse_wheels(cJSON* wheels_arr, VehicleJSON* out) {
     out->wheel_count = 0;
     cJSON* w;
@@ -299,6 +316,18 @@ static void parse_wheels(cJSON* wheels_arr, VehicleJSON* out) {
         WheelDef* wheel = &out->wheels[out->wheel_count];
         json_get_string(w, "id", wheel->id, 16, "W");
         wheel->position = json_array_to_vec3(cJSON_GetObjectItem(w, "position"), vec3(0, 0, 0));
+
+        // Initialize semantic fields
+        wheel->axle_index = -1;  // Will be populated after axle parsing
+
+        // Parse or infer wheel side
+        cJSON* side_item = cJSON_GetObjectItem(w, "side");
+        if (side_item && cJSON_IsString(side_item)) {
+            wheel->side = parse_wheel_side(side_item->valuestring);
+        } else {
+            // Infer from Z position (JSON coords: positive Z = left)
+            wheel->side = infer_wheel_side(wheel->position.z);
+        }
 
         // Check for tire reference
         cJSON* tire_ref = cJSON_GetObjectItem(w, "tire");
@@ -326,10 +355,39 @@ static void parse_wheels(cJSON* wheels_arr, VehicleJSON* out) {
     }
 }
 
+// Parse axle position from string
+static AxlePosition parse_axle_position(const char* str) {
+    if (!str) return AXLE_POSITION_UNKNOWN;
+    if (strcmp(str, "front") == 0) return AXLE_POSITION_FRONT;
+    if (strcmp(str, "rear") == 0) return AXLE_POSITION_REAR;
+    if (strcmp(str, "middle") == 0) return AXLE_POSITION_MIDDLE;
+    return AXLE_POSITION_UNKNOWN;
+}
+
+// Infer axle position from name (if not explicitly specified)
+static AxlePosition infer_axle_position(const char* name, int axle_index, int total_axles) {
+    // Try to infer from common naming conventions
+    if (name) {
+        if (strstr(name, "front") != NULL || strcmp(name, "f") == 0) return AXLE_POSITION_FRONT;
+        if (strstr(name, "rear") != NULL || strcmp(name, "r") == 0) return AXLE_POSITION_REAR;
+        if (strstr(name, "mid") != NULL) return AXLE_POSITION_MIDDLE;
+    }
+    // Fallback: first axle = front, last = rear, others = middle
+    if (axle_index == 0) return AXLE_POSITION_FRONT;
+    if (axle_index == total_axles - 1) return AXLE_POSITION_REAR;
+    return AXLE_POSITION_MIDDLE;
+}
+
 // Parse axles array (with per-axle suspension/brakes support)
 static void parse_axles(cJSON* axles_arr, VehicleJSON* out, int* hc_suspension_out) {
     out->axle_count = 0;
     int best_suspension_hc = 0;  // Track best suspension HC found
+
+    // First pass: count axles
+    int total_axles = 0;
+    cJSON* a_count;
+    cJSON_ArrayForEach(a_count, axles_arr) { total_axles++; }
+
     cJSON* a;
     cJSON_ArrayForEach(a, axles_arr) {
         if (out->axle_count >= MAX_AXLES) break;
@@ -346,6 +404,23 @@ static void parse_axles(cJSON* axles_arr, VehicleJSON* out, int* hc_suspension_o
         axle->steering = json_get_bool(a, "steering", false);
         axle->driven = json_get_bool(a, "driven", false);
         axle->max_steer_angle = json_get_float(a, "max_steer_angle", 0.6f);
+
+        // Parse semantic fields: position and handbrake
+        cJSON* pos_item = cJSON_GetObjectItem(a, "position");
+        if (pos_item && cJSON_IsString(pos_item)) {
+            axle->position = parse_axle_position(pos_item->valuestring);
+        } else {
+            axle->position = infer_axle_position(axle->name, out->axle_count, total_axles);
+        }
+
+        // Handbrake: explicit or default to rear axle
+        cJSON* handbrake_item = cJSON_GetObjectItem(a, "handbrake");
+        if (handbrake_item && cJSON_IsBool(handbrake_item)) {
+            axle->has_handbrake = cJSON_IsTrue(handbrake_item);
+        } else {
+            // Default: handbrake on rear axle
+            axle->has_handbrake = (axle->position == AXLE_POSITION_REAR);
+        }
 
         // Parse per-axle suspension (can be string ID or object)
         cJSON* axle_susp = cJSON_GetObjectItem(a, "suspension");
@@ -558,6 +633,20 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
         parse_axles(axles, out, &hc_suspension);
     }
 
+    // Link wheels to their axles (set axle_index for each wheel)
+    for (int a = 0; a < out->axle_count; a++) {
+        for (int aw = 0; aw < out->axles[a].wheel_count; aw++) {
+            const char* wheel_id = out->axles[a].wheel_ids[aw];
+            // Find this wheel in the wheels array
+            for (int w = 0; w < out->wheel_count; w++) {
+                if (strcmp(out->wheels[w].id, wheel_id) == 0) {
+                    out->wheels[w].axle_index = a;
+                    break;
+                }
+            }
+        }
+    }
+
     // Calculate tire friction from first tire's equipment
     if (s_parsed_tire_count > 0) {
         ParsedTireConfig* first_tire = &s_parsed_tires[0];
@@ -582,8 +671,16 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
     }
 
     // ========== MATCHBOX CAR PHYSICS - Power Plant ==========
-    // Read power_plant from top level, calculate acceleration/braking forces
-    cJSON* pp_ref = cJSON_GetObjectItem(root, "power_plant");
+    // Read power_plant from drivetrain section (preferred) or top level (legacy)
+    cJSON* drivetrain_section = cJSON_GetObjectItem(root, "drivetrain");
+    cJSON* pp_ref = NULL;
+    if (drivetrain_section) {
+        pp_ref = cJSON_GetObjectItem(drivetrain_section, "power_plant");
+    }
+    if (!pp_ref) {
+        // Fallback to top-level for backwards compatibility
+        pp_ref = cJSON_GetObjectItem(root, "power_plant");
+    }
     if (pp_ref && cJSON_IsString(pp_ref)) {
         const PowerPlantEquipment* pp = equipment_find_power_plant(pp_ref->valuestring);
         if (pp) {
@@ -698,10 +795,92 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
         out->physics.wheel_widths[i] = out->defaults.wheel.width;
         out->physics.wheel_masses[i] = out->defaults.wheel.mass;
         out->physics.wheel_steering[i] = false;
+        out->physics.wheel_driven[i] = (i >= 2);  // RWD by default (rear wheels)
         out->physics.wheel_steer_angles[i] = 0.6f;
         out->physics.wheel_suspension_frequency[i] = out->defaults.suspension.frequency;
         out->physics.wheel_suspension_damping[i] = out->defaults.suspension.damping;
         out->physics.wheel_suspension_travel[i] = out->defaults.suspension.travel;
+    }
+
+    // ========== ENGINE & TRANSMISSION DEFAULTS ==========
+    // Real drivetrain mode: engine torque through gearbox
+    out->physics.use_linear_accel = false;
+
+    // Engine defaults (for when use_linear_accel = false)
+    out->physics.engine_max_torque = 300.0f;    // Nm (typical sports car)
+    out->physics.engine_max_rpm = 6000.0f;       // RPM
+    out->physics.engine_idle_rpm = 1000.0f;      // RPM
+
+    // Transmission defaults (standard 5-speed from gearboxes.json)
+    out->physics.use_config_transmission = true;
+    out->physics.gear_count = 5;
+    out->physics.gear_ratios[0] = 1.5f;
+    out->physics.gear_ratios[1] = 1.2f;
+    out->physics.gear_ratios[2] = 1.0f;
+    out->physics.gear_ratios[3] = 0.85f;
+    out->physics.gear_ratios[4] = 0.7f;
+    out->physics.reverse_count = 1;
+    out->physics.reverse_ratios[0] = -1.5f;
+    out->physics.differential_ratio = 1.29f;
+
+    // ========== DRIVETRAIN SECTION ==========
+    // Parse drivetrain if present - overrides defaults (use drivetrain_section from above)
+    if (drivetrain_section) {
+        // Get engine physics from power plant (already looked up above)
+        if (pp_ref && cJSON_IsString(pp_ref)) {
+            const PowerPlantEquipment* pp = equipment_find_power_plant(pp_ref->valuestring);
+            if (pp) {
+                out->physics.engine_max_torque = pp->engine_max_torque;
+                out->physics.engine_idle_rpm = pp->engine_min_rpm;
+                out->physics.engine_max_rpm = pp->engine_max_rpm;
+            }
+        }
+
+        // Get gearbox from drivetrain
+        cJSON* gearbox_ref = cJSON_GetObjectItem(drivetrain_section, "gearbox");
+        if (gearbox_ref && cJSON_IsString(gearbox_ref)) {
+            const GearboxEquipment* gb = equipment_find_gearbox(gearbox_ref->valuestring);
+            if (gb) {
+                out->physics.gear_count = gb->gear_count;
+                for (int g = 0; g < gb->gear_count && g < MAX_CONFIG_GEARS; g++) {
+                    out->physics.gear_ratios[g] = gb->gear_ratios[g];
+                }
+                out->physics.reverse_count = gb->reverse_count;
+                for (int g = 0; g < gb->reverse_count && g < MAX_CONFIG_GEARS; g++) {
+                    out->physics.reverse_ratios[g] = gb->reverse_ratios[g];
+                }
+                out->physics.differential_ratio = gb->differential_ratio;
+                printf("  Drivetrain: %s (%.0f Nm, %d gears, diff=%.2f)\n",
+                       gb->name, out->physics.engine_max_torque, gb->gear_count, gb->differential_ratio);
+            } else {
+                fprintf(stderr, "Warning: Gearbox '%s' not found\n", gearbox_ref->valuestring);
+            }
+        }
+
+        // Set driven wheels from driven_axles
+        cJSON* driven_axles = cJSON_GetObjectItem(drivetrain_section, "driven_axles");
+        if (driven_axles && cJSON_IsArray(driven_axles)) {
+            // First clear all driven flags
+            for (int i = 0; i < 4; i++) {
+                out->physics.wheel_driven[i] = false;
+            }
+            // Then set driven for each specified axle
+            cJSON* axle_id;
+            cJSON_ArrayForEach(axle_id, driven_axles) {
+                if (!cJSON_IsString(axle_id)) continue;
+                // Find the axle and mark its wheels as driven
+                for (int a = 0; a < out->axle_count; a++) {
+                    if (strcmp(out->axles[a].name, axle_id->valuestring) == 0) {
+                        for (int w = 0; w < out->axles[a].wheel_count; w++) {
+                            int idx = wheel_id_to_index(out->axles[a].wheel_ids[w]);
+                            if (idx >= 0 && idx < 4) {
+                                out->physics.wheel_driven[idx] = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Map wheels to per-wheel arrays

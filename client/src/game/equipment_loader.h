@@ -54,7 +54,28 @@ typedef struct {
     // Calculated physics values
     float motor_force;      // Newtons (power_factors * 2.5)
     float weight_kg;        // Converted from lbs
+    // Engine physics (for real drivetrain mode)
+    float engine_max_torque;   // Nm - peak torque
+    float engine_min_rpm;      // RPM - idle
+    float engine_max_rpm;      // RPM - redline
 } PowerPlantEquipment;
+
+// Gearbox equipment
+#define MAX_GEARS 8
+typedef struct {
+    char id[MAX_EQUIPMENT_ID];
+    char name[MAX_EQUIPMENT_NAME];
+    int cost;
+    int weight_lbs;
+    // Physics values
+    float gear_ratios[MAX_GEARS];
+    int gear_count;
+    float reverse_ratios[MAX_GEARS];
+    int reverse_count;
+    float differential_ratio;
+    float shift_up_rpm;
+    float shift_down_rpm;
+} GearboxEquipment;
 
 // Tire base type
 typedef struct {
@@ -109,6 +130,9 @@ typedef struct {
     PowerPlantEquipment power_plants[MAX_EQUIPMENT_ITEMS];
     int power_plant_count;
 
+    GearboxEquipment gearboxes[MAX_EQUIPMENT_ITEMS];
+    int gearbox_count;
+
     TireEquipment tires[MAX_EQUIPMENT_ITEMS];
     int tire_count;
 
@@ -134,6 +158,7 @@ bool equipment_load_all(const char* base_path);
 // Lookup functions - return NULL if not found
 const ChassisEquipment* equipment_find_chassis(const char* id);
 const PowerPlantEquipment* equipment_find_power_plant(const char* id);
+const GearboxEquipment* equipment_find_gearbox(const char* id);
 const TireEquipment* equipment_find_tire(const char* id);
 const TireModifier* equipment_find_tire_modifier(const char* id);
 const SuspensionEquipment* equipment_find_suspension(const char* id);

@@ -421,47 +421,65 @@ void physics_step(PhysicsWorld* pw, float dt)
             v->last_traction = tractionFactor;
             v->last_applied_force = 0.0f;  // Reset, will accumulate below
 
-            // ========== MATCHBOX CAR PHYSICS ==========
-            // Apply direct body force for acceleration - wheels are unpowered
-            // F = m * a gives constant acceleration regardless of speed
-            // Force is scaled by traction (wheels on ground)
+            // ========== PHYSICS MODE ==========
             JPH::Vec3 vel = bodyInterface.GetLinearVelocity(vimpl->bodyId);
             float speed = vel.Length();
 
-            if (forward > 0.0f && speed < v->config.top_speed_ms && tractionFactor > 0.0f)
-            {
-                // Get vehicle's forward direction (Z axis in local space)
-                JPH::Quat rot = bodyInterface.GetRotation(vimpl->bodyId);
-                JPH::Vec3 forwardDir = rot.RotateAxisZ();
+            if (v->config.use_linear_accel) {
+                // ========== MATCHBOX CAR MODE ==========
+                // Apply direct body force for acceleration - wheels are unpowered
+                // F = m * a gives constant acceleration regardless of speed
+                // Force is scaled by traction (wheels on ground)
 
-                // Apply acceleration force proportional to throttle AND traction
-                float force = v->config.accel_force * forward * tractionFactor;
-                bodyInterface.AddForce(vimpl->bodyId, forwardDir * force);
-                v->last_applied_force = force;  // Store for debug display
-            }
-            else if (forward < 0.0f && tractionFactor > 0.0f)
-            {
-                // Reverse - apply force in opposite direction (scaled by traction)
-                JPH::Quat rot = bodyInterface.GetRotation(vimpl->bodyId);
-                JPH::Vec3 forwardDir = rot.RotateAxisZ();
-                float force = v->config.accel_force * (-forward) * tractionFactor;
-                bodyInterface.AddForce(vimpl->bodyId, -forwardDir * force);
-                v->last_applied_force = -force;  // Negative for reverse
-            }
+                if (forward > 0.0f && speed < v->config.top_speed_ms && tractionFactor > 0.0f)
+                {
+                    // Get vehicle's forward direction (Z axis in local space)
+                    JPH::Quat rot = bodyInterface.GetRotation(vimpl->bodyId);
+                    JPH::Vec3 forwardDir = rot.RotateAxisZ();
 
-            // Apply braking as reverse force (also scaled by traction)
-            if (v->brake > 0.0f && speed > 0.1f && tractionFactor > 0.0f)
-            {
-                // Brake force opposes current velocity direction
-                JPH::Vec3 velDir = vel.Normalized();
-                float brakeForce = v->config.brake_force * v->brake * tractionFactor;
-                bodyInterface.AddForce(vimpl->bodyId, -velDir * brakeForce);
-                // Don't add brake to last_applied_force - keep it throttle-only
-            }
+                    // Apply acceleration force proportional to throttle AND traction
+                    float force = v->config.accel_force * forward * tractionFactor;
+                    bodyInterface.AddForce(vimpl->bodyId, forwardDir * force);
+                    v->last_applied_force = force;  // Store for debug display
+                }
+                else if (forward < 0.0f && tractionFactor > 0.0f)
+                {
+                    // Reverse - apply force in opposite direction (scaled by traction)
+                    JPH::Quat rot = bodyInterface.GetRotation(vimpl->bodyId);
+                    JPH::Vec3 forwardDir = rot.RotateAxisZ();
+                    float force = v->config.accel_force * (-forward) * tractionFactor;
+                    bodyInterface.AddForce(vimpl->bodyId, -forwardDir * force);
+                    v->last_applied_force = -force;  // Negative for reverse
+                }
 
-            // Steering - use the vehicle constraint for wheel angles
-            // Only pass steering to controller, no throttle (wheels unpowered)
-            controller->SetDriverInput(0.0f, v->steering, 0.0f, v->brake);
+                // Apply braking as reverse force (also scaled by traction)
+                if (v->brake > 0.0f && speed > 0.1f && tractionFactor > 0.0f)
+                {
+                    // Brake force opposes current velocity direction
+                    JPH::Vec3 velDir = vel.Normalized();
+                    float brakeForce = v->config.brake_force * v->brake * tractionFactor;
+                    bodyInterface.AddForce(vimpl->bodyId, -velDir * brakeForce);
+                }
+
+                // Steering only - wheels unpowered
+                controller->SetDriverInput(0.0f, v->steering, 0.0f, v->brake);
+            } else {
+                // ========== REAL DRIVETRAIN MODE ==========
+                // Let Jolt's engine/transmission handle acceleration
+                // Pass all inputs to the controller
+
+                // Forward/reverse input
+                float forwardInput = forward;  // Already computed with RPM model
+
+                // Hand brake for parking/drifting (mapped from brake when stopped or explicit)
+                float handBrake = 0.0f;
+                if (speed < 0.5f && v->brake > 0.5f) {
+                    handBrake = v->brake;  // Use hand brake when nearly stopped
+                }
+
+                controller->SetDriverInput(forwardInput, v->steering, v->brake, handBrake);
+                v->last_applied_force = forwardInput * v->config.engine_max_torque;  // Approximate for display
+            }
 
             // ========== ACCELERATION TEST ==========
             // Key-triggered test (T key), auto-ends at 60 mph
@@ -929,40 +947,70 @@ int physics_create_vehicle(PhysicsWorld* pw, ::Vec3 position, float rotation_y, 
         vehicleSettings.mWheels.push_back(ws);
     }
 
-    // Controller settings - minimal setup since wheels are unpowered
-    // We still use WheeledVehicleController for wheel physics (steering, suspension)
-    // but acceleration comes from direct body force, not engine
+    // Controller settings
     WheeledVehicleControllerSettings* controllerSettings = new WheeledVehicleControllerSettings();
 
-    // Minimal engine - just enough for Jolt to not complain
-    // The engine isn't used for propulsion - that's done via direct body force
-    controllerSettings->mEngine.mMaxTorque = 1.0f;  // Minimal - not used
-    controllerSettings->mEngine.mMinRPM = 0.0f;
-    controllerSettings->mEngine.mMaxRPM = 1.0f;
+    if (config->use_linear_accel) {
+        // ========== MATCHBOX CAR MODE ==========
+        // Minimal engine/transmission - acceleration via direct body force
+        controllerSettings->mEngine.mMaxTorque = 1.0f;
+        controllerSettings->mEngine.mMinRPM = 0.0f;
+        controllerSettings->mEngine.mMaxRPM = 1.0f;
 
-    // Single gear, not used for propulsion
-    controllerSettings->mTransmission.mMode = ETransmissionMode::Auto;
-    controllerSettings->mTransmission.mShiftUpRPM = 0.5f;    // Must be < mMaxRPM for Auto mode
-    controllerSettings->mTransmission.mShiftDownRPM = 0.25f; // Must be < mShiftUpRPM
-    controllerSettings->mTransmission.mGearRatios = { 1.0f };
-    controllerSettings->mTransmission.mReverseGearRatios = { -1.0f };
+        controllerSettings->mTransmission.mMode = ETransmissionMode::Auto;
+        controllerSettings->mTransmission.mShiftUpRPM = 0.5f;
+        controllerSettings->mTransmission.mShiftDownRPM = 0.25f;
+        controllerSettings->mTransmission.mGearRatios = { 1.0f };
+        controllerSettings->mTransmission.mReverseGearRatios = { -1.0f };
 
-    // No differentials needed - wheels are unpowered
-    // But Jolt requires at least one, so add a dummy
-    controllerSettings->mDifferentials.resize(1);
-    controllerSettings->mDifferentials[0].mLeftWheel = WHEEL_RL;
-    controllerSettings->mDifferentials[0].mRightWheel = WHEEL_RR;
-    controllerSettings->mDifferentials[0].mDifferentialRatio = 1.0f;
+        controllerSettings->mDifferentials.resize(1);
+        controllerSettings->mDifferentials[0].mLeftWheel = WHEEL_RL;
+        controllerSettings->mDifferentials[0].mRightWheel = WHEEL_RR;
+        controllerSettings->mDifferentials[0].mDifferentialRatio = 1.0f;
+
+        printf("Matchbox physics: mass=%.0fkg, accel_force=%.0fN, brake=%.0fN, mu=%.1f\n",
+               config->chassis_mass, config->accel_force, config->brake_force,
+               config->tire_friction > 0 ? config->tire_friction : 1.0f);
+        printf("  Target: %.1fs 0-60 (%.2f m/s²), top speed=%.0f mph\n",
+               config->target_0_60_seconds, config->target_accel_ms2,
+               config->top_speed_ms * 2.237f);
+    } else {
+        // ========== REAL DRIVETRAIN MODE ==========
+        // Real engine with torque curve
+        controllerSettings->mEngine.mMaxTorque = config->engine_max_torque;
+        controllerSettings->mEngine.mMinRPM = config->engine_idle_rpm > 0 ? config->engine_idle_rpm : 1000.0f;
+        controllerSettings->mEngine.mMaxRPM = config->engine_max_rpm > 0 ? config->engine_max_rpm : 6000.0f;
+
+        // Automatic transmission
+        controllerSettings->mTransmission.mMode = ETransmissionMode::Auto;
+        controllerSettings->mTransmission.mShiftUpRPM = config->engine_max_rpm * 0.75f;
+        controllerSettings->mTransmission.mShiftDownRPM = config->engine_max_rpm * 0.35f;
+
+        // Configure gear ratios from config
+        controllerSettings->mTransmission.mGearRatios.clear();
+        for (int g = 0; g < config->gear_count && g < MAX_CONFIG_GEARS; g++) {
+            controllerSettings->mTransmission.mGearRatios.push_back(config->gear_ratios[g]);
+        }
+        controllerSettings->mTransmission.mReverseGearRatios.clear();
+        for (int g = 0; g < config->reverse_count && g < MAX_CONFIG_GEARS; g++) {
+            controllerSettings->mTransmission.mReverseGearRatios.push_back(config->reverse_ratios[g]);
+        }
+
+        // Configure differential for RWD (rear wheels driven)
+        controllerSettings->mDifferentials.resize(1);
+        controllerSettings->mDifferentials[0].mLeftWheel = WHEEL_RL;
+        controllerSettings->mDifferentials[0].mRightWheel = WHEEL_RR;
+        controllerSettings->mDifferentials[0].mDifferentialRatio = config->differential_ratio;
+
+        printf("Drivetrain physics: mass=%.0fkg, torque=%.0fNm, mu=%.1f\n",
+               config->chassis_mass, config->engine_max_torque,
+               config->tire_friction > 0 ? config->tire_friction : 1.0f);
+        printf("  Engine: %.0f-%.0f RPM, %d gears, diff=%.2f\n",
+               controllerSettings->mEngine.mMinRPM, controllerSettings->mEngine.mMaxRPM,
+               config->gear_count, config->differential_ratio);
+    }
 
     vehicleSettings.mController = controllerSettings;
-
-    // Log matchbox car physics info
-    float tireMu = config->tire_friction > 0 ? config->tire_friction : 1.0f;
-    printf("Matchbox physics: mass=%.0fkg, accel_force=%.0fN, brake=%.0fN, mu=%.1f\n",
-           config->chassis_mass, config->accel_force, config->brake_force, tireMu);
-    printf("  Target: %.1fs 0-60 (%.2f m/s²), top speed=%.0f mph\n",
-           config->target_0_60_seconds, config->target_accel_ms2,
-           config->top_speed_ms * 2.237f);
 
     // Create constraint
     vimpl->constraint = new VehicleConstraint(*carBody, vehicleSettings);
@@ -1044,6 +1092,35 @@ void physics_vehicle_set_brake(PhysicsWorld* pw, int vehicle_id, float brake)
     PhysicsVehicle* v = &pw->vehicles[vehicle_id];
     if (!v->active) return;
     v->brake = brake;
+}
+
+void physics_vehicle_set_handbrake(PhysicsWorld* pw, int vehicle_id, float handbrake)
+{
+    if (!pw || vehicle_id < 0 || vehicle_id >= MAX_PHYSICS_VEHICLES) return;
+    PhysicsVehicle* v = &pw->vehicles[vehicle_id];
+    if (!v->active) return;
+    v->handbrake = handbrake;
+}
+
+void physics_vehicle_set_wheel_brake(PhysicsWorld* pw, int vehicle_id, int wheel_idx, float brake)
+{
+    if (!pw || vehicle_id < 0 || vehicle_id >= MAX_PHYSICS_VEHICLES) return;
+    if (wheel_idx < 0 || wheel_idx >= 4) return;
+    PhysicsVehicle* v = &pw->vehicles[vehicle_id];
+    if (!v->active) return;
+    v->wheel_brake[wheel_idx] = brake;
+    v->use_per_wheel_brake = true;
+}
+
+void physics_vehicle_clear_per_wheel_brake(PhysicsWorld* pw, int vehicle_id)
+{
+    if (!pw || vehicle_id < 0 || vehicle_id >= MAX_PHYSICS_VEHICLES) return;
+    PhysicsVehicle* v = &pw->vehicles[vehicle_id];
+    if (!v->active) return;
+    v->use_per_wheel_brake = false;
+    for (int i = 0; i < 4; i++) {
+        v->wheel_brake[i] = 0.0f;
+    }
 }
 
 void physics_vehicle_respawn(PhysicsWorld* pw, int vehicle_id)

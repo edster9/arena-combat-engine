@@ -1,5 +1,14 @@
 # Vehicle Maneuvering System
 
+> **DEPRECATED (2025-12-31):** This document describes the legacy kinematic maneuver system with 5-phase turns. The project is transitioning to a physics-based system with Lua scripting ("Reflex Scripts"). See:
+> - [Physics-Based Turn System](proposals/physics-based-turn-system.md)
+> - [Maneuver Scripting System](proposals/maneuver-scripting-system.md)
+> - [ROADMAP.md](ROADMAP.md)
+>
+> This document is preserved for reference on classic tabletop rules.
+
+---
+
 This document covers all vehicle maneuvers inspired by classic tabletop vehicular combat games, including rules, difficulty ratings, speed requirements, and implementation notes.
 
 ---
