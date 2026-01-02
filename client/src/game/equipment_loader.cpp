@@ -145,12 +145,9 @@ static bool load_power_plants(const char* filepath) {
                 p->cost = json_get_int(item, "cost", 0); \
                 p->weight_lbs = json_get_int(item, "weight", 0); \
                 p->spaces = json_get_int(item, "spaces", 0); \
-                p->power_factors = json_get_int(item, "power_factors", 0); \
                 p->power_units = json_get_int(item, "power_units", 0); \
-                p->motor_force = json_get_float(item, "motor_force", 0); \
-                if (p->motor_force <= 0) { \
-                    p->motor_force = p->power_factors * POWER_FACTOR_TO_FORCE; \
-                } \
+                /* Read force_n directly (Jolt-compatible Newton value) */ \
+                p->motor_force = json_get_float(item, "force_n", 0); \
                 p->weight_kg = p->weight_lbs * LBS_TO_KG; \
                 /* Engine physics for real drivetrain mode */ \
                 cJSON* physics = cJSON_GetObjectItem(item, "physics"); \
@@ -159,11 +156,13 @@ static bool load_power_plants(const char* filepath) {
                     p->engine_min_rpm = json_get_float(physics, "idle_rpm", 1000.0f); \
                     p->engine_max_rpm = json_get_float(physics, "max_rpm", 6000.0f); \
                 } \
-                /* Default engine physics derived from power_factors if not specified */ \
-                if (p->engine_max_torque <= 0.0f) { \
-                    /* Rough estimate: torque in Nm ≈ power_factors * 0.25 */ \
-                    p->engine_max_torque = p->power_factors * 0.25f; \
-                    if (p->engine_max_torque < 100.0f) p->engine_max_torque = 100.0f; \
+                /* Default engine torque derived from force_n if not specified */ \
+                /* Torque = Force * wheel_radius / (gear_ratio * diff_ratio) */ \
+                /* With 0.32m wheels, gear ~2.0, diff 3.42: T = F * 0.32 / 6.84 = F * 0.047 */ \
+                /* Use 0.055 for headroom (AWD + TCS handles extra power) */ \
+                if (p->engine_max_torque <= 0.0f && p->motor_force > 0) { \
+                    p->engine_max_torque = p->motor_force * 0.055f; \
+                    if (p->engine_max_torque < 50.0f) p->engine_max_torque = 50.0f; \
                 } \
                 if (p->engine_min_rpm <= 0.0f) p->engine_min_rpm = 1000.0f; \
                 if (p->engine_max_rpm <= 0.0f) p->engine_max_rpm = 6000.0f; \
@@ -371,6 +370,9 @@ static bool load_gearboxes(const char* filepath) {
                 g->differential_ratio = json_get_float(physics, "differential_ratio", 1.0f);
                 g->shift_up_rpm = json_get_float(physics, "shift_up_rpm", 4500.0f);
                 g->shift_down_rpm = json_get_float(physics, "shift_down_rpm", 2000.0f);
+                g->clutch_strength = json_get_float(physics, "clutch_strength", 10.0f);
+                g->switch_time = json_get_float(physics, "switch_time", 0.5f);
+                g->switch_latency = json_get_float(physics, "switch_latency", 0.5f);
             }
             g_equipment.gearbox_count++;
         }
@@ -502,36 +504,3 @@ TirePhysics equipment_calc_tire_physics(const char* tire_id, const char** modifi
     return result;
 }
 
-// Calculate top speed
-float equipment_calc_top_speed_mph(const char* type, int power_factors, int total_weight_lbs) {
-    if (total_weight_lbs <= 0 || power_factors <= 0) return 0.0f;
-
-    float pf = (float)power_factors;
-    float w = (float)total_weight_lbs;
-
-    // tabletop formulas
-    if (strcmp(type, "electric") == 0 || strcmp(type, "nuclear") == 0) {
-        return 360.0f * pf / (pf + w);
-    } else {  // gas
-        return 240.0f * pf / (pf + w);
-    }
-}
-
-float equipment_calc_top_speed_ms(const char* type, int power_factors, int total_weight_lbs) {
-    return equipment_calc_top_speed_mph(type, power_factors, total_weight_lbs) * MPH_TO_MS;
-}
-
-// Calculate acceleration class
-int equipment_calc_accel_class(int power_factors, int total_weight_lbs) {
-    if (total_weight_lbs <= 0 || power_factors <= 0) return 0;
-
-    float ratio = (float)power_factors / (float)total_weight_lbs;
-
-    // tabletop acceleration tiers
-    if (ratio >= 3.0f) return 25;       // 3x weight (nuclear only)
-    if (ratio >= 2.0f) return 20;       // 2x weight (nuclear only)
-    if (ratio >= 1.0f) return 15;       // >= weight
-    if (ratio >= 0.5f) return 10;       // >= 1/2 weight
-    if (ratio >= 0.333f) return 5;      // >= 1/3 weight
-    return 0;                            // underpowered
-}

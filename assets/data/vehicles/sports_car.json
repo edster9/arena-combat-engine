@@ -14,9 +14,9 @@
 
   "drivetrain": {
     "type": "single_motor",
-    "power_plant": "gas_100cid",
+    "power_plant": "gas_200cid",
     "gearbox": "gearbox_standard",
-    "driven_axles": ["rear"]
+    "driven_axles": ["front", "rear"]
   },
 
   "wheels": [
@@ -31,13 +31,13 @@
       "id": "front_tires",
       "type": "tire_standard",
       "modifiers": ["mod_radial"],
-      "size": { "radius": 0.35, "width": 0.2 }
+      "size": { "radius": 0.32, "width": 0.22 }
     },
     {
       "id": "rear_tires",
       "type": "tire_standard",
       "modifiers": ["mod_radial"],
-      "size": { "radius": 0.35, "width": 0.2 }
+      "size": { "radius": 0.32, "width": 0.22 }
     }
   ],
 
@@ -56,6 +56,20 @@
       "suspension": "suspension_improved",
       "brakes": "brakes_standard",
       "steering": false
+    }
+  ],
+
+  "scripts": [
+    {
+      "name": "freestyle_assist",
+      "path": "scripts/freestyle_assist.lua",
+      "enabled": true,
+      "options": {
+        "abs_enabled": false,
+        "abs_min_speed": 2.2,
+        "tcs_enabled": true,
+        "esc_enabled": false
+      }
     }
   ]
 }

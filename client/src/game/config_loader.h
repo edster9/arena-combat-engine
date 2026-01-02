@@ -16,6 +16,9 @@
 #define MAX_WHEELS 16          // Max wheels per vehicle (supports trucks, etc.)
 #define MAX_AXLES 8            // Max axles per vehicle
 #define MAX_WHEELS_PER_AXLE 4  // Max wheels on one axle (dual rear wheels)
+#define MAX_VEHICLE_SCRIPTS 4  // Max scripts per vehicle
+#define MAX_SCRIPT_OPTIONS 8   // Max config options per script
+#define MAX_SCRIPT_PATH 128    // Max path length for script file
 
 // Vehicle class types
 typedef enum {
@@ -81,7 +84,6 @@ typedef struct {
     float width;
     float mass;
     float friction;       // Tire friction coefficient (mu)
-    float slip;           // Tire slip allowed (legacy, not used by Jolt)
 } WheelDefaults;
 
 // Suspension defaults (v2 format) - Jolt style
@@ -101,6 +103,21 @@ typedef struct {
 typedef struct {
     float friction;       // Friction coefficient (mu) - Jolt handles slip internally
 } TireDef;
+
+// Script configuration option (key-value pair)
+typedef struct {
+    char key[32];         // Option name (e.g., "abs_enabled", "pulse_rate")
+    float value;          // Numeric value (booleans: 0.0 = false, 1.0 = true)
+} ScriptOption;
+
+// Script definition for vehicle
+typedef struct {
+    char name[MAX_NAME_LENGTH];           // Script identifier (e.g., "freestyle_assist")
+    char path[MAX_SCRIPT_PATH];           // Path to Lua script file
+    bool enabled;                         // Whether script is active
+    ScriptOption options[MAX_SCRIPT_OPTIONS];  // Configuration options
+    int option_count;
+} VehicleScript;
 
 // Vehicle configuration loaded from JSON
 typedef struct {
@@ -129,6 +146,10 @@ typedef struct {
     // Legacy V1 format: flat physics struct (for backwards compatibility)
     VehicleConfig physics;
     float motor_max_speed;
+
+    // Scripts attached to this vehicle
+    VehicleScript scripts[MAX_VEHICLE_SCRIPTS];
+    int script_count;
 } VehicleJSON;
 
 // Vehicle spawn in scene

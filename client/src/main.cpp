@@ -31,6 +31,7 @@
 #include "game/config_loader.h"
 #include "game/equipment_loader.h"
 #include "game/maneuver.h"
+#include "script/reflex_script.h"
 
 #include <GL/glew.h>
 #include <stdio.h>
@@ -505,6 +506,10 @@ int main(int argc, char* argv[]) {
         // Continue anyway, physics just won't work
     }
 
+    // Initialize Reflex Script Engine (Lua/Sol3)
+    // Scripts are loaded per-vehicle in the vehicle creation loop below
+    ReflexScriptEngine* script_engine = reflex_create();
+
     // Set up ground plane from scene config
     physics_set_ground(&physics, scene_config.arena.ground_y);
 
@@ -544,6 +549,26 @@ int main(int argc, char* argv[]) {
             if (e->active && e->type == ENTITY_VEHICLE) {
                 int phys_id = physics_create_vehicle(&physics, e->position, e->rotation_y, &vehicle_cfg);
                 entity_to_physics[e->id] = phys_id;
+
+                // Attach scripts to this vehicle (each vehicle gets its own isolated script instance)
+                if (script_engine) {
+                    for (int si = 0; si < vehicle_config.script_count; si++) {
+                        VehicleScript* vs = &vehicle_config.scripts[si];
+                        if (!vs->enabled) continue;
+
+                        // Build config arrays
+                        const char* keys[MAX_SCRIPT_OPTIONS];
+                        float values[MAX_SCRIPT_OPTIONS];
+                        for (int opt = 0; opt < vs->option_count; opt++) {
+                            keys[opt] = vs->options[opt].key;
+                            values[opt] = vs->options[opt].value;
+                        }
+
+                        // Attach script with config (creates isolated instance for this vehicle)
+                        reflex_attach_script(script_engine, phys_id, vs->path,
+                                             keys, values, vs->option_count);
+                    }
+                }
             }
         }
     }
@@ -613,6 +638,11 @@ int main(int argc, char* argv[]) {
     // Steering state (accessible for status bar display)
     bool discrete_steering = false;  // Start in gradual mode (easier to drive)
     int steering_level = 0;         // -5 to +5 for discrete mode
+
+    // Manual throttle override (for debugging TCS/drivetrain)
+    // -1 = disabled (use UP key), 0-6 = manual levels: 5%, 10%, 15%, 20%, 30%, 40%, 50%
+    int manual_throttle_level = -1;
+    float manual_throttle_values[7] = {0.05f, 0.10f, 0.15f, 0.20f, 0.30f, 0.40f, 0.50f};
     float current_steering = 0.0f;  // Current steering value
 
     // Physics state for each car (indexed by entity id)
@@ -655,11 +685,11 @@ int main(int argc, char* argv[]) {
             platform_capture_mouse(&platform, &input, false);
         }
 
-        // Number keys 1-0 select vehicles and enable chase camera
+        // Number keys 1-3 select vehicles and enable chase camera
         {
-            int key_to_vehicle[10] = {KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0};
+            int key_to_vehicle[3] = {KEY_1, KEY_2, KEY_3};
 
-            for (int v = 0; v < 10; v++) {
+            for (int v = 0; v < 3; v++) {
                 if (input.keys_pressed[key_to_vehicle[v]]) {
                     // Find entity that maps to physics vehicle v
                     int target_phys_id = v;
@@ -690,6 +720,22 @@ int main(int argc, char* argv[]) {
                             }
                         }
                     }
+                    break;
+                }
+            }
+        }
+
+        // Keys 4-0 set manual throttle levels (for debugging TCS/drivetrain)
+        // 4=5%, 5=10%, 6=15%, 7=20%, 8=30%, 9=40%, 0=50%
+        // UP key when manual throttle is active will clear it (return to full throttle)
+        {
+            int throttle_keys[7] = {KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0};
+            const char* throttle_labels[7] = {"5%", "10%", "15%", "20%", "30%", "40%", "50%"};
+
+            for (int t = 0; t < 7; t++) {
+                if (input.keys_pressed[throttle_keys[t]]) {
+                    manual_throttle_level = t;
+                    printf("Manual throttle: %s (%.0f%%)\n", throttle_labels[t], manual_throttle_values[t] * 100.0f);
                     break;
                 }
             }
@@ -823,8 +869,16 @@ int main(int argc, char* argv[]) {
             printf("Scene config reloaded (arena/obstacles - restart for full effect)\n");
         }
 
-        // F key is now free (mode toggle moved to TAB)
-        // Could be repurposed for another feature in the future
+        // Reload scripts with F5 (hot reload for development)
+        if (input.keys_pressed[KEY_F5]) {
+            printf("Reloading scripts...\n");
+            int count = reflex_reload_all_scripts(script_engine);
+            if (count >= 0) {
+                printf("Scripts reloaded: %d vehicle scripts\n", count);
+            } else {
+                printf("Script reload failed!\n");
+            }
+        }
 
         // Start acceleration test with T (requires selected vehicle)
         if (input.keys_pressed[KEY_T]) {
@@ -1232,8 +1286,22 @@ int main(int argc, char* argv[]) {
                         }
                     }
 
-                    if (input.keys[KEY_UP]) throttle = 1.0f;
-                    if (input.keys[KEY_DOWN]) reverse = 1.0f;
+                    // Manual throttle mode (keys 4-0 set fixed throttle levels)
+                    if (manual_throttle_level >= 0) {
+                        // Manual throttle active - apply fixed level
+                        throttle = manual_throttle_values[manual_throttle_level];
+                        // UP key clears manual throttle (return to full)
+                        if (input.keys_pressed[KEY_UP]) {
+                            manual_throttle_level = -1;
+                            printf("Manual throttle: OFF (full throttle)\n");
+                        }
+                    } else if (input.keys[KEY_UP]) {
+                        // Normal throttle - Shift = half throttle for less wheelspin
+                        throttle = (input.keys[KEY_LSHIFT] || input.keys[KEY_RSHIFT]) ? 0.5f : 1.0f;
+                    }
+                    if (input.keys[KEY_DOWN]) {
+                        reverse = (input.keys[KEY_LSHIFT] || input.keys[KEY_RSHIFT]) ? 0.5f : 1.0f;
+                    }
                     if (input.keys[KEY_SPACE]) brake = 1.0f;
 
                     // Apply controls to physics vehicle
@@ -1241,6 +1309,16 @@ int main(int argc, char* argv[]) {
                     physics_vehicle_set_reverse(&physics, phys_id, reverse);
                     physics_vehicle_set_brake(&physics, phys_id, brake);
                     physics_vehicle_set_steering(&physics, phys_id, current_steering);
+                }
+            }
+        }
+
+        // Update reflex scripts (ABS, traction control, AI)
+        // Scripts run before physics so they can modify controls
+        if (script_engine) {
+            for (int i = 0; i < physics.vehicle_count; i++) {
+                if (physics.vehicles[i].active) {
+                    reflex_update_vehicle(script_engine, &physics, i, dt);
                 }
             }
         }
@@ -1828,28 +1906,66 @@ int main(int argc, char* argv[]) {
                     }
                     text_draw(&text_renderer, col_buf, col1, row2_y, UI_COLOR_WHITE);
 
-                    // Traction
+                    // Traction (moved to col2)
                     float traction = 0.0f;
                     if (phys_id >= 0) {
                         float force_n;
                         physics_vehicle_get_traction_info(&physics, phys_id, &force_n, &traction);
                     }
                     int wheels_contact = (int)(traction * 4.0f + 0.5f);
-                    snprintf(col_buf, sizeof(col_buf), "Traction: %d/4 wheels", wheels_contact);
+                    snprintf(col_buf, sizeof(col_buf), "Traction: %d/4", wheels_contact);
+                    text_draw(&text_renderer, col_buf, col2, row2_y, UI_COLOR_WHITE);
+
+                    // Gear and RPM (col3 area)
+                    int gear = 0;
+                    float rpm = 0.0f;
+                    int raw_gear = 0;
+                    bool is_matchbox = false;
+                    if (phys_id >= 0) {
+                        physics_vehicle_get_drivetrain_info(&physics, phys_id, &gear, &rpm, &raw_gear, &is_matchbox);
+                    }
+
+                    if (is_matchbox) {
+                        // Matchbox mode - drivetrain is fake, show N/A
+                        snprintf(col_buf, sizeof(col_buf), "Gear: N/A");
+                    } else if (gear < 0) {
+                        snprintf(col_buf, sizeof(col_buf), "Gear: R RPM: %.0f", rpm);
+                    } else if (gear == 0) {
+                        snprintf(col_buf, sizeof(col_buf), "Gear: N RPM: %.0f", rpm);
+                    } else {
+                        snprintf(col_buf, sizeof(col_buf), "Gear: %d RPM: %.0f", gear, rpm);
+                    }
                     text_draw(&text_renderer, col_buf, col3, row2_y, UI_COLOR_WHITE);
 
-                    // Drift/Spin status
-                    float lateral_ms = 0.0f;
-                    if (phys_id >= 0) {
-                        physics_vehicle_get_lateral_velocity(&physics, phys_id, &lateral_ms);
+                    // Throttle (col4) - shows actual physics throttle (reflects TCS adjustments)
+                    float phys_throttle = 0.0f;
+                    if (phys_id >= 0 && physics.vehicles[phys_id].active) {
+                        phys_throttle = physics.vehicles[phys_id].throttle;
                     }
-                    float lateral_mph = lateral_ms * 2.237f;
-                    if (lateral_mph >= 15.0f) {
-                        text_draw(&text_renderer, "*** SPINNING ***", col5, row2_y, UI_COLOR_DANGER);
-                    } else if (lateral_mph >= 5.0f) {
-                        text_draw(&text_renderer, "DRIFTING", col5, row2_y, UI_COLOR_CAUTION);
+                    int throttle_pct = (int)(phys_throttle * 100.0f + 0.5f);
+                    snprintf(col_buf, sizeof(col_buf), "Throttle: %d%%", throttle_pct);
+                    text_draw(&text_renderer, col_buf, col4, row2_y, UI_COLOR_WHITE);
+
+                    // Slip percentage (col5) - shows max wheel slip for debugging TCS
+                    float max_slip = 0.0f;
+                    if (phys_id >= 0) {
+                        WheelState wheel_states[4];
+                        physics_vehicle_get_wheel_states(&physics, phys_id, wheel_states);
+                        for (int w = 0; w < 4; w++) {
+                            float slip = fabsf(wheel_states[w].longitudinal_slip);
+                            if (slip > max_slip) max_slip = slip;
+                        }
+                    }
+                    int slip_pct = (int)(max_slip * 100.0f + 0.5f);
+                    if (slip_pct > 15) {
+                        snprintf(col_buf, sizeof(col_buf), "Slip: %d%%", slip_pct);
+                        text_draw(&text_renderer, col_buf, col5, row2_y, UI_COLOR_DANGER);
+                    } else if (slip_pct > 5) {
+                        snprintf(col_buf, sizeof(col_buf), "Slip: %d%%", slip_pct);
+                        text_draw(&text_renderer, col_buf, col5, row2_y, UI_COLOR_CAUTION);
                     } else {
-                        text_draw(&text_renderer, "Grip OK", col5, row2_y, UI_COLOR_SAFE);
+                        snprintf(col_buf, sizeof(col_buf), "Slip: %d%%", slip_pct);
+                        text_draw(&text_renderer, col_buf, col5, row2_y, UI_COLOR_SAFE);
                     }
                 } else {
                     // Turn mode: Phase info
@@ -1999,6 +2115,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Cleanup
+    if (script_engine) reflex_destroy(script_engine);
     physics_destroy(&physics);
     if (has_lines) line_renderer_destroy(&line_renderer);
     if (has_text) text_renderer_destroy(&text_renderer);

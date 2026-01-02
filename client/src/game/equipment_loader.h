@@ -15,7 +15,6 @@
 // Physics conversion constants
 #define LBS_TO_KG 0.453592f
 #define MPH_TO_MS 0.44704f
-#define POWER_FACTOR_TO_FORCE 2.5f
 
 // Chassis equipment (body type)
 typedef struct {
@@ -49,10 +48,9 @@ typedef struct {
     int cost;
     int weight_lbs;
     int spaces;
-    int power_factors;
     int power_units;
-    // Calculated physics values
-    float motor_force;      // Newtons (power_factors * 2.5)
+    // Physics values
+    float motor_force;      // Newtons (read directly from force_n in JSON)
     float weight_kg;        // Converted from lbs
     // Engine physics (for real drivetrain mode)
     float engine_max_torque;   // Nm - peak torque
@@ -75,6 +73,9 @@ typedef struct {
     float differential_ratio;
     float shift_up_rpm;
     float shift_down_rpm;
+    float clutch_strength;    // Clutch engagement strength (Jolt default ~10)
+    float switch_time;        // Time to complete gear change in seconds
+    float switch_latency;     // Delay before shift initiates in seconds
 } GearboxEquipment;
 
 // Tire base type
@@ -170,13 +171,5 @@ typedef struct {
 } TirePhysics;
 
 TirePhysics equipment_calc_tire_physics(const char* tire_id, const char** modifier_ids, int modifier_count);
-
-// Calculate top speed from power plant and total weight
-// type: "electric" or "gas"
-float equipment_calc_top_speed_mph(const char* type, int power_factors, int total_weight_lbs);
-float equipment_calc_top_speed_ms(const char* type, int power_factors, int total_weight_lbs);
-
-// Calculate acceleration class from power factor to weight ratio
-int equipment_calc_accel_class(int power_factors, int total_weight_lbs);
 
 #endif // EQUIPMENT_LOADER_H

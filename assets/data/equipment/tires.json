@@ -30,7 +30,7 @@
       "spike_damage_modifier": 1.0,
       "debris_damage_modifier": 1.0,
       "physics": {
-        "mu": 2.0
+        "mu": 6.0
       }
     },
     "heavy_duty": {

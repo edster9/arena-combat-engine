@@ -592,7 +592,6 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
             out->defaults.wheel.width = json_get_float(def_wheel, "width", out->defaults.wheel.width);
             out->defaults.wheel.mass = json_get_float(def_wheel, "mass", out->defaults.wheel.mass);
             out->defaults.wheel.friction = json_get_float(def_wheel, "friction", out->defaults.wheel.friction);
-            out->defaults.wheel.slip = json_get_float(def_wheel, "slip", out->defaults.wheel.slip);
         }
         // Parse defaults.suspension (Jolt style: frequency/damping)
         cJSON* def_susp = cJSON_GetObjectItem(defaults, "suspension");
@@ -688,67 +687,28 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
             out->chassis_mass += pp->weight_kg;
             out->physics.chassis_mass = out->chassis_mass;
 
-            // Store power factors for tabletop calculations
-            out->physics.power_factors = pp->power_factors;
             strncpy(out->physics.vehicle_name, out->name, 63);
             out->physics.vehicle_name[63] = '\0';
 
-            // Calculate weight in lbs for tabletop formulas
+            // Use motor_force directly from power plant (Jolt-compatible Newtons)
+            out->physics.accel_force = pp->motor_force;
+
+            // Calculate physics-based acceleration and 0-60 time
+            // a = F/m, t = v/a where v = 26.82 m/s (60 mph)
+            float accel_ms2 = pp->motor_force / out->chassis_mass;
+            out->physics.target_accel_ms2 = accel_ms2;
+            out->physics.target_0_60_seconds = 26.82f / accel_ms2;
+
+            // Top speed not calculated - drivetrain simulation handles this
+            out->physics.top_speed_ms = 0.0f;
+
             float weight_lbs = out->chassis_mass / LBS_TO_KG;
-            float pf_weight_ratio = (float)pp->power_factors / weight_lbs;
-
-            // Calculate top speed from tabletop formula
-            out->physics.top_speed_ms = equipment_calc_top_speed_ms(pp->type, pp->power_factors, (int)weight_lbs);
-
-            // Determine acceleration class from PF/weight ratio
-            // 15 mph/s: ratio >= 1.0, 0-60 = 4.0s
-            // 10 mph/s: ratio >= 0.5, 0-60 = 6.0s
-            // 5 mph/s:  ratio >= 0.333, 0-60 = 12.0s
-            if (pf_weight_ratio >= 1.0f) {
-                out->physics.target_0_60_seconds = 4.0f;
-                out->physics.target_accel_ms2 = 6.71f;  // 26.82 m/s / 4.0s
-            } else if (pf_weight_ratio >= 0.5f) {
-                out->physics.target_0_60_seconds = 6.0f;
-                out->physics.target_accel_ms2 = 4.47f;  // 26.82 m/s / 6.0s
-            } else if (pf_weight_ratio >= 0.333f) {
-                out->physics.target_0_60_seconds = 12.0f;
-                out->physics.target_accel_ms2 = 2.24f;  // 26.82 m/s / 12.0s
-            } else {
-                out->physics.target_0_60_seconds = 12.0f;
-                out->physics.target_accel_ms2 = 2.24f;  // Minimum 5 mph/s class
-            }
-
-            // Calculate acceleration force: F = m * a * K
-            // K compensates for:
-            //   1. Jolt wheel rolling resistance (constant, not proportional to force)
-            //   2. Engine RPM ramp-up (1.5s to full throttle, loses ~0.75s effective time)
-            // Per-bucket K values derived from empirical testing + ramp compensation:
-            //   5 mph/s (12s): K=1.75
-            //   10 mph/s (6s): K=1.40
-            //   15 mph/s (4s): K=1.42
-            //   20 mph/s (3s): K=1.36 (estimated)
-            // Note: K compensates for physics losses (friction, drag, suspension)
-            // Tuned via accel test to hit target 0-60 times
-            float k_compensation;
-            if (out->physics.target_0_60_seconds >= 12.0f) {
-                k_compensation = 1.54f;  // 5 mph/s class
-            } else if (out->physics.target_0_60_seconds >= 6.0f) {
-                k_compensation = 1.40f;  // 10 mph/s class
-            } else if (out->physics.target_0_60_seconds >= 4.0f) {
-                k_compensation = 1.42f;  // 15 mph/s class
-            } else {
-                k_compensation = 1.36f;  // 20 mph/s class
-            }
-            out->physics.accel_force = out->physics.chassis_mass * out->physics.target_accel_ms2 * k_compensation;
-
-            printf("  Power Plant: %s (%d PF, %.0fkg)\n", pp->name, pp->power_factors, pp->weight_kg);
-            printf("  Total Weight: %.0f kg (%.0f lbs), PF/wt ratio: %.2f\n",
-                   out->chassis_mass, weight_lbs, pf_weight_ratio);
+            printf("  Power Plant: %s (%.0fN, %.0fkg)\n", pp->name, pp->motor_force, pp->weight_kg);
+            printf("  Total Weight: %.0f kg (%.0f lbs), F/wt ratio: %.2f N/kg\n",
+                   out->chassis_mass, weight_lbs, pp->motor_force / out->chassis_mass);
             printf("  Accel Class: %d mph/s (%.1fs 0-60, F=%.0fN)\n",
-                   (int)(26.82f / out->physics.target_0_60_seconds * 2.237f),
-                   out->physics.target_0_60_seconds, out->physics.accel_force);
-            printf("  Top Speed: %.0f mph (%.1f m/s)\n",
-                   out->physics.top_speed_ms * 2.237f, out->physics.top_speed_ms);
+                   (int)(accel_ms2 * 2.237f), out->physics.target_0_60_seconds, pp->motor_force);
+            printf("  Top Speed: 0 mph (0.0 m/s)\n");
         } else {
             fprintf(stderr, "Warning: Power plant '%s' not found\n", pp_ref->valuestring);
         }
@@ -820,8 +780,11 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
     out->physics.gear_ratios[3] = 0.85f;
     out->physics.gear_ratios[4] = 0.7f;
     out->physics.reverse_count = 1;
-    out->physics.reverse_ratios[0] = -1.5f;
+    out->physics.reverse_ratios[0] = 1.5f;  // POSITIVE - Jolt handles direction via input sign
     out->physics.differential_ratio = 1.29f;
+    out->physics.clutch_strength = 10.0f;   // Clutch engagement strength
+    out->physics.switch_time = 0.2f;        // Time to complete gear change
+    out->physics.switch_latency = 0.1f;     // Delay before shift initiates
 
     // ========== DRIVETRAIN SECTION ==========
     // Parse drivetrain if present - overrides defaults (use drivetrain_section from above)
@@ -850,6 +813,11 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
                     out->physics.reverse_ratios[g] = gb->reverse_ratios[g];
                 }
                 out->physics.differential_ratio = gb->differential_ratio;
+                out->physics.clutch_strength = gb->clutch_strength;
+                out->physics.switch_time = gb->switch_time;
+                out->physics.switch_latency = gb->switch_latency;
+                out->physics.shift_up_rpm = gb->shift_up_rpm;
+                out->physics.shift_down_rpm = gb->shift_down_rpm;
                 printf("  Drivetrain: %s (%.0f Nm, %d gears, diff=%.2f)\n",
                        gb->name, out->physics.engine_max_torque, gb->gear_count, gb->differential_ratio);
             } else {
@@ -930,6 +898,49 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
         if (out->axles[i].steering) {
             out->physics.max_steer_angle = out->axles[i].max_steer_angle;
             break;
+        }
+    }
+
+    // ========== SCRIPTS SECTION ==========
+    // Parse scripts array for driver assists, AI, etc.
+    cJSON* scripts = cJSON_GetObjectItem(root, "scripts");
+    out->script_count = 0;
+    if (scripts && cJSON_IsArray(scripts)) {
+        cJSON* script_item;
+        cJSON_ArrayForEach(script_item, scripts) {
+            if (out->script_count >= MAX_VEHICLE_SCRIPTS) break;
+
+            VehicleScript* s = &out->scripts[out->script_count];
+            json_get_string(script_item, "name", s->name, MAX_NAME_LENGTH, "unnamed");
+            json_get_string(script_item, "path", s->path, MAX_SCRIPT_PATH, "");
+            s->enabled = json_get_bool(script_item, "enabled", true);
+
+            // Parse options object
+            s->option_count = 0;
+            cJSON* options = cJSON_GetObjectItem(script_item, "options");
+            if (options && cJSON_IsObject(options)) {
+                cJSON* opt;
+                cJSON_ArrayForEach(opt, options) {
+                    if (s->option_count >= MAX_SCRIPT_OPTIONS) break;
+                    if (opt->string && (cJSON_IsNumber(opt) || cJSON_IsBool(opt))) {
+                        ScriptOption* so = &s->options[s->option_count];
+                        strncpy(so->key, opt->string, 31);
+                        so->key[31] = '\0';
+                        if (cJSON_IsBool(opt)) {
+                            so->value = cJSON_IsTrue(opt) ? 1.0f : 0.0f;
+                        } else {
+                            so->value = (float)opt->valuedouble;
+                        }
+                        s->option_count++;
+                    }
+                }
+            }
+
+            if (s->path[0] != '\0') {
+                printf("  Script: %s (%s, %s, %d options)\n",
+                       s->name, s->path, s->enabled ? "enabled" : "disabled", s->option_count);
+                out->script_count++;
+            }
         }
     }
 

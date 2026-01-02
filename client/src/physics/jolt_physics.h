@@ -75,6 +75,11 @@ typedef struct {
     float reverse_ratios[MAX_CONFIG_GEARS];  // Reverse gear ratios
     int reverse_count;                        // Number of reverse gears
     float differential_ratio;                 // Final drive ratio
+    float clutch_strength;                    // Clutch engagement strength (Jolt default ~10)
+    float switch_time;                        // Time to complete gear change in seconds
+    float switch_latency;                     // Delay before shift initiates in seconds
+    float shift_up_rpm;                       // RPM threshold to shift up
+    float shift_down_rpm;                     // RPM threshold to shift down
     bool use_config_transmission;            // If true, use these values instead of Jolt defaults
 
     // ========== PHYSICS MODE ==========
@@ -103,13 +108,16 @@ typedef struct {
     bool use_per_wheel_config;
 } VehicleConfig;
 
-// Per-wheel state (for rendering)
+// Per-wheel state (for rendering and scripts)
 typedef struct {
     Vec3 position;
-    float rotation;          // Wheel spin angle
+    float rotation;          // Wheel spin angle (radians)
+    float angular_velocity;  // Wheel spin rate (rad/s) - for slip calculation
     float steer_angle;       // Current steering angle
     float suspension_compression; // 0 = fully extended, 1 = fully compressed
     float rot_matrix[12];    // Rotation matrix (3x4, column-major)
+    float longitudinal_slip; // Tire slip ratio (0 = no slip, >0.1 blocks upshift)
+    bool has_contact;        // Wheel touching ground
 } WheelState;
 
 // Opaque physics types (implementation hidden)
@@ -232,6 +240,7 @@ void physics_vehicle_get_lateral_velocity(PhysicsWorld* pw, int vehicle_id, floa
 void physics_vehicle_get_wheel_states(PhysicsWorld* pw, int vehicle_id, WheelState* wheels);
 void physics_vehicle_get_traction_info(PhysicsWorld* pw, int vehicle_id, float* force_n, float* traction);  // Debug: force & traction
 void physics_vehicle_get_handling(PhysicsWorld* pw, int vehicle_id, int* hs, int* hc);  // Current HS and base HC
+void physics_vehicle_get_drivetrain_info(PhysicsWorld* pw, int vehicle_id, int* gear, float* rpm, int* raw_gear, bool* is_matchbox);  // Drivetrain debug
 
 // World pause/unpause (for turn-based and maneuver execution)
 void physics_pause(PhysicsWorld* pw);

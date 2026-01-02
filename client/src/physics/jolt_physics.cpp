@@ -279,6 +279,42 @@ void physics_step(PhysicsWorld* pw, float dt)
                 }
             }
             printf("\n");
+
+            // Debug drivetrain for vehicle 0 if using real drivetrain mode
+            if (pw->vehicles[0].active && pw->vehicles[0].impl && !pw->vehicles[0].config.use_linear_accel) {
+                PhysicsVehicle* v = &pw->vehicles[0];
+                PhysicsVehicleImpl* vimpl = v->impl;
+                WheeledVehicleController* ctrl = static_cast<WheeledVehicleController*>(
+                    vimpl->constraint->GetController());
+
+                int gear = ctrl->GetTransmission().GetCurrentGear();
+                float rpm = ctrl->GetEngine().GetCurrentRPM();
+                float clutch = ctrl->GetTransmission().GetClutchFriction();
+
+                // Check wheel slip on driven wheels (rear)
+                const Wheels& wheels = vimpl->constraint->GetWheels();
+                float rl_slip = 0, rr_slip = 0;
+                bool rl_contact = false, rr_contact = false;
+                if (wheels.size() > WHEEL_RL) {
+                    const WheelWV* wRL = static_cast<const WheelWV*>(wheels[WHEEL_RL]);
+                    const WheelWV* wRR = static_cast<const WheelWV*>(wheels[WHEEL_RR]);
+                    rl_slip = wRL->mLongitudinalSlip;
+                    rr_slip = wRR->mLongitudinalSlip;
+                    rl_contact = wheels[WHEEL_RL]->HasContact();
+                    rr_contact = wheels[WHEEL_RR]->HasContact();
+                }
+
+                printf("  [Drivetrain] Gear:%d RPM:%.0f Clutch:%.2f Slip:RL=%.2f%s RR=%.2f%s\n",
+                       gear, rpm, clutch,
+                       rl_slip, rl_contact ? "" : "(air)",
+                       rr_slip, rr_contact ? "" : "(air)");
+
+                // Show if slip would block upshift (>10%)
+                bool slipping = (rl_slip > 0.1f || rr_slip > 0.1f);
+                if (slipping) {
+                    printf("    -> SLIP BLOCKING UPSHIFT (slip > 10%%)\n");
+                }
+            }
             fflush(stdout);
             vehicleDebugTimer = 0;
         }
@@ -293,30 +329,37 @@ void physics_step(PhysicsWorld* pw, float dt)
             BodyInterface& bodyInterface = impl->physicsSystem->GetBodyInterface();
 
             // ========== ENGINE RPM MODEL ==========
-            // Engine "spins up" when throttle pressed, decays slowly when released
-            // This allows quick re-engagement at speed (engine already spun up)
-            const float rpmRampUp = 1.0f / 1.5f;   // Full RPM in 1.5 seconds
-            const float rpmDecay = 1.0f / 3.0f;    // Decay to zero in 3 seconds
+            // Engine RPM follows throttle position - like a real throttle pedal
+            // More throttle = engine revs higher, less throttle = engine revs lower
+            // TCS reducing throttle will cause engine to rev down naturally
+            const float rpmRampUp = 1.0f / 0.5f;   // Ramp up quickly (0.5s to target)
+            const float rpmRampDown = 1.0f / 0.3f; // Ramp down faster (0.3s, engine braking feel)
             float stepDt = pw->step_size;          // Use fixed physics timestep
 
-            // Engine RPM: ramps up when throttle pressed, decays slowly when released
-            if (v->throttle > 0.0f) {
-                // Accelerating: ramp RPM toward 1.0
-                v->engine_rpm = fminf(v->engine_rpm + rpmRampUp * stepDt, 1.0f);
+            // Engine RPM tracks throttle position
+            float targetRpm = v->throttle;
+            // Debug: show what throttle physics is using (remove after testing)
+            static int debugCounter = 0;
+            if (++debugCounter % 60 == 0 && v->throttle > 0.1f) {
+                printf("[Physics] Vehicle %d: throttle=%.2f, engine_rpm=%.2f, target=%.2f\n",
+                       i, v->throttle, v->engine_rpm, targetRpm);
+                fflush(stdout);
+            }
+            if (v->engine_rpm < targetRpm) {
+                v->engine_rpm = fminf(v->engine_rpm + rpmRampUp * stepDt, targetRpm);
             } else {
-                // Coasting: decay RPM slowly (engine stays "warm")
-                v->engine_rpm = fmaxf(v->engine_rpm - rpmDecay * stepDt, 0.0f);
+                v->engine_rpm = fmaxf(v->engine_rpm - rpmRampDown * stepDt, targetRpm);
             }
 
             // Same for reverse
-            if (v->reverse > 0.0f) {
-                v->reverse_rpm = fminf(v->reverse_rpm + rpmRampUp * stepDt, 1.0f);
+            float targetReverseRpm = v->reverse;
+            if (v->reverse_rpm < targetReverseRpm) {
+                v->reverse_rpm = fminf(v->reverse_rpm + rpmRampUp * stepDt, targetReverseRpm);
             } else {
-                v->reverse_rpm = fmaxf(v->reverse_rpm - rpmDecay * stepDt, 0.0f);
+                v->reverse_rpm = fmaxf(v->reverse_rpm - rpmRampDown * stepDt, targetReverseRpm);
             }
 
-            // Calculate forward input: throttle * engine_rpm (instant power cut, but RPM persists)
-            // This means releasing throttle = instant zero force, but re-pressing is fast
+            // Forward force = throttle * rpm (both now track throttle position)
             float forward = (v->throttle * v->engine_rpm) - (v->reverse * v->reverse_rpm);
 
             // ========== CRUISE CONTROL ==========
@@ -409,16 +452,20 @@ void physics_step(PhysicsWorld* pw, float dt)
                 vimpl->constraint->GetController());
             const Wheels& wheels = vimpl->constraint->GetWheels();
 
+            // Simple airborne check - any wheel on ground allows force
+            // (TCS script handles actual traction control via slip detection)
+            bool anyWheelOnGround = false;
             int wheelsInContact = 0;
             for (size_t w = 0; w < wheels.size() && w < 4; w++)
             {
-                if (wheels[w]->HasContact())
+                if (wheels[w]->HasContact()) {
+                    anyWheelOnGround = true;
                     wheelsInContact++;
+                }
             }
-            float tractionFactor = (float)wheelsInContact / 4.0f;  // 0.0 to 1.0
 
-            // Store traction for status bar display
-            v->last_traction = tractionFactor;
+            // Store for status bar display
+            v->last_traction = (float)wheelsInContact / 4.0f;
             v->last_applied_force = 0.0f;  // Reset, will accumulate below
 
             // ========== PHYSICS MODE ==========
@@ -429,35 +476,36 @@ void physics_step(PhysicsWorld* pw, float dt)
                 // ========== MATCHBOX CAR MODE ==========
                 // Apply direct body force for acceleration - wheels are unpowered
                 // F = m * a gives constant acceleration regardless of speed
-                // Force is scaled by traction (wheels on ground)
+                // Only apply force if any wheel is on ground (airborne check)
+                // TCS script handles actual slip-based traction control
 
-                if (forward > 0.0f && speed < v->config.top_speed_ms && tractionFactor > 0.0f)
+                if (forward > 0.0f && speed < v->config.top_speed_ms && anyWheelOnGround)
                 {
                     // Get vehicle's forward direction (Z axis in local space)
                     JPH::Quat rot = bodyInterface.GetRotation(vimpl->bodyId);
                     JPH::Vec3 forwardDir = rot.RotateAxisZ();
 
-                    // Apply acceleration force proportional to throttle AND traction
-                    float force = v->config.accel_force * forward * tractionFactor;
+                    // Apply acceleration force proportional to throttle
+                    float force = v->config.accel_force * forward;
                     bodyInterface.AddForce(vimpl->bodyId, forwardDir * force);
                     v->last_applied_force = force;  // Store for debug display
                 }
-                else if (forward < 0.0f && tractionFactor > 0.0f)
+                else if (forward < 0.0f && anyWheelOnGround)
                 {
-                    // Reverse - apply force in opposite direction (scaled by traction)
+                    // Reverse - apply force in opposite direction
                     JPH::Quat rot = bodyInterface.GetRotation(vimpl->bodyId);
                     JPH::Vec3 forwardDir = rot.RotateAxisZ();
-                    float force = v->config.accel_force * (-forward) * tractionFactor;
+                    float force = v->config.accel_force * (-forward);
                     bodyInterface.AddForce(vimpl->bodyId, -forwardDir * force);
                     v->last_applied_force = -force;  // Negative for reverse
                 }
 
-                // Apply braking as reverse force (also scaled by traction)
-                if (v->brake > 0.0f && speed > 0.1f && tractionFactor > 0.0f)
+                // Apply braking as reverse force
+                if (v->brake > 0.0f && speed > 0.1f && anyWheelOnGround)
                 {
                     // Brake force opposes current velocity direction
                     JPH::Vec3 velDir = vel.Normalized();
-                    float brakeForce = v->config.brake_force * v->brake * tractionFactor;
+                    float brakeForce = v->config.brake_force * v->brake;
                     bodyInterface.AddForce(vimpl->bodyId, -velDir * brakeForce);
                 }
 
@@ -466,16 +514,14 @@ void physics_step(PhysicsWorld* pw, float dt)
             } else {
                 // ========== REAL DRIVETRAIN MODE ==========
                 // Let Jolt's engine/transmission handle acceleration
-                // Pass all inputs to the controller
+                // Pass raw throttle input - Jolt engine handles RPM internally
+                // DO NOT use the 'forward' variable - it has fake RPM ramp-up for matchbox mode
 
-                // Forward/reverse input
-                float forwardInput = forward;  // Already computed with RPM model
+                // Forward/reverse: use raw inputs (positive = forward, negative = reverse)
+                float forwardInput = v->throttle - v->reverse;
 
-                // Hand brake for parking/drifting (mapped from brake when stopped or explicit)
-                float handBrake = 0.0f;
-                if (speed < 0.5f && v->brake > 0.5f) {
-                    handBrake = v->brake;  // Use hand brake when nearly stopped
-                }
+                // Handbrake: use explicit handbrake input (not inferred from brake)
+                float handBrake = v->handbrake;
 
                 controller->SetDriverInput(forwardInput, v->steering, v->brake, handBrake);
                 v->last_applied_force = forwardInput * v->config.engine_max_torque;  // Approximate for display
@@ -505,6 +551,30 @@ void physics_step(PhysicsWorld* pw, float dt)
                 if (v->accel_test_timing_started)
                 {
                     v->accel_test_elapsed += pw->step_size;
+
+                    // Detailed logging every 0.25s to catch gear shifts and pauses
+                    v->accel_test_print_timer += pw->step_size;
+                    if (v->accel_test_print_timer >= 0.25f) {
+                        v->accel_test_print_timer = 0;
+                        WheeledVehicleController* ctrl = static_cast<WheeledVehicleController*>(
+                            vimpl->constraint->GetController());
+                        int gear = ctrl->GetTransmission().GetCurrentGear();
+                        float rpm = ctrl->GetEngine().GetCurrentRPM();
+                        float clutch = ctrl->GetTransmission().GetClutchFriction();
+                        float speedMph = speed * 2.23694f;
+
+                        // Get max wheel slip
+                        const Wheels& testWheels = vimpl->constraint->GetWheels();
+                        float maxSlip = 0;
+                        for (size_t w = 0; w < testWheels.size() && w < 4; w++) {
+                            const WheelWV* wv = static_cast<const WheelWV*>(testWheels[w]);
+                            if (wv->mLongitudinalSlip > maxSlip) maxSlip = wv->mLongitudinalSlip;
+                        }
+
+                        printf("[ACCEL] t=%.2fs %.0fmph G%d RPM:%.0f Clutch:%.2f Slip:%.2f Thr:%.2f\n",
+                               v->accel_test_elapsed, speedMph, gear, rpm, clutch, maxSlip, v->throttle);
+                        fflush(stdout);
+                    }
 
                     // Stop conditions: target speed (may be less than 60 for slow cars), collision, or timeout
                     float targetSpeed = v->accel_test_target_ms;
@@ -624,9 +694,16 @@ void physics_step(PhysicsWorld* pw, float dt)
                 v->wheel_states[w].position.z = (float)pos.GetZ();
 
                 v->wheel_states[w].rotation = wheel->GetRotationAngle();
+                v->wheel_states[w].angular_velocity = wheel->GetAngularVelocity();
                 v->wheel_states[w].steer_angle = wheel->GetSteerAngle();
                 v->wheel_states[w].suspension_compression = wheel->GetSuspensionLength() /
                     wheel->GetSettings()->mSuspensionMaxLength;
+
+                // Capture slip and contact state for gear shift debugging
+                v->wheel_states[w].has_contact = wheel->HasContact();
+                // mLongitudinalSlip is on WheelWV (wheeled vehicle wheel type)
+                const WheelWV* wheelWV = static_cast<const WheelWV*>(wheel);
+                v->wheel_states[w].longitudinal_slip = wheelWV->mLongitudinalSlip;
 
                 // Extract rotation matrix
                 Mat44 rot = wheelTransform.GetRotation();
@@ -961,7 +1038,7 @@ int physics_create_vehicle(PhysicsWorld* pw, ::Vec3 position, float rotation_y, 
         controllerSettings->mTransmission.mShiftUpRPM = 0.5f;
         controllerSettings->mTransmission.mShiftDownRPM = 0.25f;
         controllerSettings->mTransmission.mGearRatios = { 1.0f };
-        controllerSettings->mTransmission.mReverseGearRatios = { -1.0f };
+        controllerSettings->mTransmission.mReverseGearRatios = { -1.0f };  // NEGATIVE - Jolt requires negative reverse ratios
 
         controllerSettings->mDifferentials.resize(1);
         controllerSettings->mDifferentials[0].mLeftWheel = WHEEL_RL;
@@ -981,10 +1058,28 @@ int physics_create_vehicle(PhysicsWorld* pw, ::Vec3 position, float rotation_y, 
         controllerSettings->mEngine.mMinRPM = config->engine_idle_rpm > 0 ? config->engine_idle_rpm : 1000.0f;
         controllerSettings->mEngine.mMaxRPM = config->engine_max_rpm > 0 ? config->engine_max_rpm : 6000.0f;
 
+        // Engine inertia - affects how quickly RPM changes
+        // I = 0.5 * m * r^2, typical flywheel ~10kg, 0.15m radius
+        controllerSettings->mEngine.mInertia = 0.5f * 10.0f * 0.15f * 0.15f;  // ~0.11 kg*m^2
+
         // Automatic transmission
         controllerSettings->mTransmission.mMode = ETransmissionMode::Auto;
-        controllerSettings->mTransmission.mShiftUpRPM = config->engine_max_rpm * 0.75f;
-        controllerSettings->mTransmission.mShiftDownRPM = config->engine_max_rpm * 0.35f;
+        // Use gearbox shift RPM values (with fallback to calculated values)
+        if (config->shift_up_rpm > 0) {
+            controllerSettings->mTransmission.mShiftUpRPM = config->shift_up_rpm;
+        } else {
+            controllerSettings->mTransmission.mShiftUpRPM = config->engine_max_rpm * 0.75f;
+        }
+        if (config->shift_down_rpm > 0) {
+            controllerSettings->mTransmission.mShiftDownRPM = config->shift_down_rpm;
+        } else {
+            controllerSettings->mTransmission.mShiftDownRPM = config->engine_max_rpm * 0.35f;
+        }
+
+        // Clutch and shift timing - CRITICAL for auto shifting to work
+        controllerSettings->mTransmission.mClutchStrength = config->clutch_strength;
+        controllerSettings->mTransmission.mSwitchTime = config->switch_time;
+        controllerSettings->mTransmission.mSwitchLatency = config->switch_latency;
 
         // Configure gear ratios from config
         controllerSettings->mTransmission.mGearRatios.clear();
@@ -993,14 +1088,47 @@ int physics_create_vehicle(PhysicsWorld* pw, ::Vec3 position, float rotation_y, 
         }
         controllerSettings->mTransmission.mReverseGearRatios.clear();
         for (int g = 0; g < config->reverse_count && g < MAX_CONFIG_GEARS; g++) {
-            controllerSettings->mTransmission.mReverseGearRatios.push_back(config->reverse_ratios[g]);
+            // Jolt requires NEGATIVE reverse gear ratios
+            float ratio = config->reverse_ratios[g];
+            controllerSettings->mTransmission.mReverseGearRatios.push_back(ratio > 0 ? -ratio : ratio);
         }
 
-        // Configure differential for RWD (rear wheels driven)
-        controllerSettings->mDifferentials.resize(1);
-        controllerSettings->mDifferentials[0].mLeftWheel = WHEEL_RL;
-        controllerSettings->mDifferentials[0].mRightWheel = WHEEL_RR;
-        controllerSettings->mDifferentials[0].mDifferentialRatio = config->differential_ratio;
+        // Configure differentials based on which wheels are driven
+        // Check front and rear axles
+        bool front_driven = config->wheel_driven[WHEEL_FL] || config->wheel_driven[WHEEL_FR];
+        bool rear_driven = config->wheel_driven[WHEEL_RL] || config->wheel_driven[WHEEL_RR];
+
+        controllerSettings->mDifferentials.clear();
+
+        if (front_driven && rear_driven) {
+            // AWD: Two differentials (front + rear) with 50/50 torque split
+            controllerSettings->mDifferentials.resize(2);
+            // Front differential - 50% of engine torque
+            controllerSettings->mDifferentials[0].mLeftWheel = WHEEL_FL;
+            controllerSettings->mDifferentials[0].mRightWheel = WHEEL_FR;
+            controllerSettings->mDifferentials[0].mDifferentialRatio = config->differential_ratio;
+            controllerSettings->mDifferentials[0].mEngineTorqueRatio = 0.5f;
+            // Rear differential - 50% of engine torque
+            controllerSettings->mDifferentials[1].mLeftWheel = WHEEL_RL;
+            controllerSettings->mDifferentials[1].mRightWheel = WHEEL_RR;
+            controllerSettings->mDifferentials[1].mDifferentialRatio = config->differential_ratio;
+            controllerSettings->mDifferentials[1].mEngineTorqueRatio = 0.5f;
+            printf("Drivetrain: AWD (50/50 front/rear torque split)\n");
+        } else if (front_driven) {
+            // FWD: Front differential only
+            controllerSettings->mDifferentials.resize(1);
+            controllerSettings->mDifferentials[0].mLeftWheel = WHEEL_FL;
+            controllerSettings->mDifferentials[0].mRightWheel = WHEEL_FR;
+            controllerSettings->mDifferentials[0].mDifferentialRatio = config->differential_ratio;
+            printf("Drivetrain: FWD (front differential)\n");
+        } else {
+            // RWD: Rear differential only (default)
+            controllerSettings->mDifferentials.resize(1);
+            controllerSettings->mDifferentials[0].mLeftWheel = WHEEL_RL;
+            controllerSettings->mDifferentials[0].mRightWheel = WHEEL_RR;
+            controllerSettings->mDifferentials[0].mDifferentialRatio = config->differential_ratio;
+            printf("Drivetrain: RWD (rear differential)\n");
+        }
 
         printf("Drivetrain physics: mass=%.0fkg, torque=%.0fNm, mu=%.1f\n",
                config->chassis_mass, config->engine_max_torque,
@@ -1008,6 +1136,22 @@ int physics_create_vehicle(PhysicsWorld* pw, ::Vec3 position, float rotation_y, 
         printf("  Engine: %.0f-%.0f RPM, %d gears, diff=%.2f\n",
                controllerSettings->mEngine.mMinRPM, controllerSettings->mEngine.mMaxRPM,
                config->gear_count, config->differential_ratio);
+        printf("  Shift: up@%.0f down@%.0f RPM, clutch=%.1f, switch=%.1fs\n",
+               controllerSettings->mTransmission.mShiftUpRPM,
+               controllerSettings->mTransmission.mShiftDownRPM,
+               controllerSettings->mTransmission.mClutchStrength,
+               controllerSettings->mTransmission.mSwitchTime);
+        printf("  Forward: %d gears [", (int)controllerSettings->mTransmission.mGearRatios.size());
+        for (size_t i = 0; i < controllerSettings->mTransmission.mGearRatios.size(); i++) {
+            printf("%.2f ", controllerSettings->mTransmission.mGearRatios[i]);
+        }
+        printf("]\n");
+        printf("  Reverse: %d gears [", (int)controllerSettings->mTransmission.mReverseGearRatios.size());
+        for (size_t i = 0; i < controllerSettings->mTransmission.mReverseGearRatios.size(); i++) {
+            printf("%.2f ", controllerSettings->mTransmission.mReverseGearRatios[i]);
+        }
+        printf("]\n");
+        fflush(stdout);
     }
 
     vehicleSettings.mController = controllerSettings;
@@ -1820,6 +1964,55 @@ void physics_vehicle_get_handling(PhysicsWorld* pw, int vehicle_id, int* hs, int
 
     if (hs) *hs = v->handling.handling_status;
     if (hc) *hc = v->handling.handling_class;
+}
+
+void physics_vehicle_get_drivetrain_info(PhysicsWorld* pw, int vehicle_id, int* gear, float* rpm, int* raw_gear, bool* is_matchbox)
+{
+    if (!pw || !pw->impl) return;
+    if (vehicle_id < 0 || vehicle_id >= MAX_PHYSICS_VEHICLES) return;
+
+    PhysicsVehicle* v = &pw->vehicles[vehicle_id];
+    if (!v->active || !v->impl) {
+        if (gear) *gear = 0;
+        if (rpm) *rpm = 0.0f;
+        if (raw_gear) *raw_gear = 0;
+        if (is_matchbox) *is_matchbox = false;
+        return;
+    }
+
+    // Report if matchbox mode is active (wheels unpowered, no real drivetrain)
+    if (is_matchbox) {
+        *is_matchbox = v->config.use_linear_accel;
+    }
+
+    PhysicsVehicleImpl* vimpl = v->impl;
+    if (!vimpl->constraint) {
+        if (gear) *gear = 0;
+        if (rpm) *rpm = 0.0f;
+        if (raw_gear) *raw_gear = 0;
+        return;
+    }
+
+    WheeledVehicleController* controller = static_cast<WheeledVehicleController*>(
+        vimpl->constraint->GetController());
+
+    // Get raw Jolt gear value for debugging
+    int jolt_gear = controller->GetTransmission().GetCurrentGear();
+    if (raw_gear) {
+        *raw_gear = jolt_gear;
+    }
+
+    if (gear) {
+        // Jolt gear convention (WheeledVehicleController):
+        // -1 = reverse
+        //  0 = neutral
+        //  1+ = forward gears (1 = first, 2 = second, etc.)
+        *gear = jolt_gear;  // Pass through directly, Jolt uses our expected convention
+    }
+
+    if (rpm) {
+        *rpm = controller->GetEngine().GetCurrentRPM();
+    }
 }
 
 // ========== WORLD PAUSE/UNPAUSE ==========

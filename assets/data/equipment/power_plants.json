@@ -1,30 +1,17 @@
 {
   "_meta": {
-    "description": "tabletop power plants - electric and gas engines",
-    "source": "tabletop Compendium 2nd Edition, equipment catalog",
+    "description": "Power plants - electric and gas engines",
+    "source": "Based on tabletop Compendium 2nd Edition, converted to SI units",
     "units": {
       "cost": "dollars",
       "weight": "lbs",
       "spaces": "vehicle spaces",
-      "power_factors": "PF for acceleration calculation"
+      "force_n": "maximum motor force in Newtons (wheel force after drivetrain)"
     },
-    "acceleration_rules": {
-      "underpowered": "PF < 1/3 weight = won't move",
-      "5_mph": "PF >= 1/3 and < 1/2 weight",
-      "10_mph": "PF >= 1/2 and < weight",
-      "15_mph": "PF >= weight",
-      "20_mph": "PF >= 2x weight (nuclear only)",
-      "25_mph": "PF >= 3x weight (nuclear only)"
-    },
-    "top_speed_formula": {
-      "electric": "360 * PF / (PF + weight)",
-      "gas": "240 * PF / (PF + weight)"
-    },
-    "physics_translation": {
-      "_notes": "Conversion from tabletop values to physics engine values",
-      "power_factors": "tabletop reference value (read-only for display/rules)",
-      "weight_to_mass": "lbs * 0.453592 (kg)",
-      "top_speed_to_velocity": "mph * 0.44704 (m/s)"
+    "physics_notes": {
+      "force_n": "Direct Newton value for Jolt physics - no conversion needed",
+      "acceleration": "a = F/m, so 6250N / 862kg = 7.25 m/s² = 16 mph/s",
+      "weight_to_mass": "lbs * 0.453592 = kg"
     }
   },
   "electric": {
@@ -36,7 +23,7 @@
       "weight": 500,
       "spaces": 3,
       "dp": 5,
-      "power_factors": 800,
+      "force_n": 2000,
       "power_units": 400
     },
     "medium": {
@@ -47,7 +34,7 @@
       "weight": 700,
       "spaces": 4,
       "dp": 8,
-      "power_factors": 1400,
+      "force_n": 3500,
       "power_units": 700
     },
     "large": {
@@ -58,7 +45,7 @@
       "weight": 900,
       "spaces": 5,
       "dp": 10,
-      "power_factors": 2000,
+      "force_n": 5000,
       "power_units": 1000
     },
     "super": {
@@ -69,7 +56,7 @@
       "weight": 1100,
       "spaces": 6,
       "dp": 12,
-      "power_factors": 2600,
+      "force_n": 6500,
       "power_units": 1300
     },
     "sport": {
@@ -80,7 +67,7 @@
       "weight": 1000,
       "spaces": 6,
       "dp": 12,
-      "power_factors": 3000,
+      "force_n": 7500,
       "power_units": 1500
     },
     "thundercat": {
@@ -91,7 +78,7 @@
       "weight": 2000,
       "spaces": 8,
       "dp": 15,
-      "power_factors": 6700,
+      "force_n": 16750,
       "power_units": 3350
     },
     "nuclear": {
@@ -102,7 +89,7 @@
       "weight": 2500,
       "spaces": 14,
       "dp": 4,
-      "power_factors": 20000,
+      "force_n": 50000,
       "max_top_speed": 200,
       "wheel_motor_upgrade_cost": 1000,
       "notes": "Requires $1000 per wheel for motor upgrades. Special damage rules apply.",
@@ -121,7 +108,7 @@
       "weight": 6000,
       "spaces": 20,
       "dp": 6,
-      "power_factors": 50000,
+      "force_n": 125000,
       "max_top_speed": 130,
       "notes": "Better shielding than standard nuclear. Special damage rules apply."
     }
@@ -135,7 +122,7 @@
       "weight": 100,
       "spaces": 1,
       "dp": 2,
-      "power_factors": 400
+      "force_n": 1000
     },
     "medium_cycle": {
       "id": "electric_cycle_medium",
@@ -145,7 +132,7 @@
       "weight": 150,
       "spaces": 1,
       "dp": 3,
-      "power_factors": 600
+      "force_n": 1500
     },
     "large_cycle": {
       "id": "electric_cycle_large",
@@ -155,7 +142,7 @@
       "weight": 175,
       "spaces": 2,
       "dp": 4,
-      "power_factors": 800
+      "force_n": 2000
     },
     "super_cycle": {
       "id": "electric_cycle_super",
@@ -165,7 +152,7 @@
       "weight": 200,
       "spaces": 2,
       "dp": 5,
-      "power_factors": 1000
+      "force_n": 2500
     },
     "super_trike": {
       "id": "electric_trike_super",
@@ -175,7 +162,7 @@
       "weight": 250,
       "spaces": 3,
       "dp": 6,
-      "power_factors": 1200
+      "force_n": 3000
     }
   },
   "gas_engines": {
@@ -187,7 +174,7 @@
       "weight": 60,
       "spaces": 1,
       "dp": 1,
-      "power_factors": 300,
+      "force_n": 750,
       "mpg": 80
     },
     "30_cid": {
@@ -198,7 +185,7 @@
       "weight": 115,
       "spaces": 1,
       "dp": 2,
-      "power_factors": 500,
+      "force_n": 1250,
       "mpg": 70
     },
     "50_cid": {
@@ -209,7 +196,7 @@
       "weight": 150,
       "spaces": 1,
       "dp": 3,
-      "power_factors": 700,
+      "force_n": 1750,
       "mpg": 60
     },
     "100_cid": {
@@ -220,7 +207,7 @@
       "weight": 265,
       "spaces": 2,
       "dp": 6,
-      "power_factors": 1300,
+      "force_n": 3250,
       "mpg": 50
     },
     "150_cid": {
@@ -231,7 +218,7 @@
       "weight": 375,
       "spaces": 3,
       "dp": 9,
-      "power_factors": 1900,
+      "force_n": 4750,
       "mpg": 45
     },
     "200_cid": {
@@ -242,7 +229,7 @@
       "weight": 480,
       "spaces": 4,
       "dp": 12,
-      "power_factors": 2500,
+      "force_n": 6250,
       "mpg": 35
     },
     "250_cid": {
@@ -253,7 +240,7 @@
       "weight": 715,
       "spaces": 5,
       "dp": 14,
-      "power_factors": 3200,
+      "force_n": 8000,
       "mpg": 28
     },
     "300_cid": {
@@ -264,7 +251,7 @@
       "weight": 825,
       "spaces": 6,
       "dp": 16,
-      "power_factors": 4000,
+      "force_n": 10000,
       "mpg": 22
     },
     "350_cid": {
@@ -275,7 +262,7 @@
       "weight": 975,
       "spaces": 7,
       "dp": 19,
-      "power_factors": 5000,
+      "force_n": 12500,
       "mpg": 18
     },
     "400_cid": {
@@ -286,7 +273,7 @@
       "weight": 1050,
       "spaces": 8,
       "dp": 22,
-      "power_factors": 6300,
+      "force_n": 15750,
       "mpg": 15
     },
     "450_cid": {
@@ -297,7 +284,7 @@
       "weight": 1125,
       "spaces": 9,
       "dp": 24,
-      "power_factors": 7800,
+      "force_n": 19500,
       "mpg": 13
     },
     "500_cid": {
@@ -308,7 +295,7 @@
       "weight": 1200,
       "spaces": 10,
       "dp": 26,
-      "power_factors": 9500,
+      "force_n": 23750,
       "mpg": 12
     },
     "700_cid": {
@@ -319,7 +306,7 @@
       "weight": 1275,
       "spaces": 14,
       "dp": 30,
-      "power_factors": 13000,
+      "force_n": 32500,
       "mpg": 10
     }
   },
@@ -329,24 +316,24 @@
       "name": "Platinum Catalysts (PCs)",
       "type": "electric_only",
       "cost_modifier": 0.2,
-      "power_factor_modifier": 0.05,
-      "notes": "Increases power factors by 5%, costs 20% of plant cost"
+      "force_modifier": 1.05,
+      "notes": "Increases force by 5%, costs 20% of plant cost"
     },
     "superconductors": {
       "id": "superconductors",
       "name": "Superconductors (SCs)",
       "type": "electric_only",
       "cost_modifier": 0.5,
-      "power_factor_modifier": 0.1,
-      "notes": "Increases power factors by 10%, costs 50% of plant cost"
+      "force_modifier": 1.10,
+      "notes": "Increases force by 10%, costs 50% of plant cost"
     },
     "pc_and_sc_combo": {
       "id": "pc_and_sc_combo",
       "name": "PCs and SCs Combined",
       "type": "electric_only",
       "cost_modifier": 0.7,
-      "power_factor_modifier": 0.15,
-      "notes": "Combined effect: 15% power factor increase"
+      "force_modifier": 1.15,
+      "notes": "Combined effect: 15% force increase"
     },
     "extra_power_cells": {
       "id": "extra_power_cells",
@@ -357,7 +344,7 @@
       "spaces_modifier": 0.1,
       "dp_modifier": 0.1,
       "power_units_modifier": 0.5,
-      "notes": "50% more power units, does not affect power factors"
+      "notes": "50% more power units, does not affect force"
     },
     "improved_supercharger_capacitors": {
       "id": "isc",
@@ -402,34 +389,34 @@
       "name": "Turbocharger",
       "type": "gas_only",
       "cost_modifier": 0.5,
-      "power_factor_modifier": 0.2,
+      "force_modifier": 1.20,
       "weight": 0,
       "spaces": 1,
-      "notes": "Increases power factors by 20%"
+      "notes": "Increases force by 20%"
     },
     "supercharger": {
       "id": "supercharger",
       "name": "Supercharger",
       "type": "gas_only",
       "cost_modifier": 0.3,
-      "power_factor_modifier": 0.1,
-      "notes": "Increases power factors by 10%"
+      "force_modifier": 1.10,
+      "notes": "Increases force by 10%"
     },
     "tubular_headers": {
       "id": "tubular_headers",
       "name": "Tubular Headers",
       "type": "gas_only",
       "cost_modifier": 0.2,
-      "power_factor_modifier": 0.05,
-      "notes": "Increases power factors by 5%"
+      "force_modifier": 1.05,
+      "notes": "Increases force by 5%"
     },
     "blueprinting": {
       "id": "blueprinting",
       "name": "Blueprinting",
       "type": "gas_only",
       "cost_modifier": 0.3,
-      "power_factor_modifier": 0.05,
-      "notes": "Increases power factors by 5%"
+      "force_modifier": 1.05,
+      "notes": "Increases force by 5%"
     },
     "nitrous_oxide": {
       "id": "nitrous_oxide",

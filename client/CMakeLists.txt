@@ -15,8 +15,23 @@ pkg_check_modules(SDL2 REQUIRED sdl2)
 find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 
-# Jolt Physics via FetchContent
+# LuaJIT for scripting (fallback to Lua 5.1 if not found)
+pkg_check_modules(LUAJIT luajit)
+if(NOT LUAJIT_FOUND)
+    message(WARNING "LuaJIT not found, trying Lua 5.1...")
+    pkg_check_modules(LUA REQUIRED lua5.1)
+    set(LUA_LIBRARIES ${LUA_LIBRARIES})
+    set(LUA_INCLUDE_DIRS ${LUA_INCLUDE_DIRS})
+else()
+    set(LUA_LIBRARIES ${LUAJIT_LIBRARIES})
+    set(LUA_INCLUDE_DIRS ${LUAJIT_INCLUDE_DIRS})
+    message(STATUS "Found LuaJIT: ${LUAJIT_LIBRARIES}")
+endif()
+
+# FetchContent for external dependencies
 include(FetchContent)
+
+# Jolt Physics
 FetchContent_Declare(
     JoltPhysics
     GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
@@ -32,7 +47,15 @@ set(TARGET_PERFORMANCE_TEST OFF CACHE BOOL "" FORCE)
 set(TARGET_SAMPLES OFF CACHE BOOL "" FORCE)
 set(TARGET_VIEWER OFF CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(JoltPhysics)
+# Sol3 (header-only Lua C++ bindings)
+FetchContent_Declare(
+    sol2
+    GIT_REPOSITORY https://github.com/ThePhD/sol2.git
+    GIT_TAG v3.3.0
+    GIT_SHALLOW TRUE
+)
+
+FetchContent_MakeAvailable(JoltPhysics sol2)
 
 # Source files
 set(SOURCES
@@ -54,6 +77,7 @@ set(SOURCES
     src/ui/ui_render.cpp
     src/ui/ui_text.cpp
     src/physics/jolt_physics.cpp
+    src/script/reflex_script.cpp
     src/vendor/cJSON.cpp
 )
 
@@ -66,20 +90,22 @@ target_include_directories(carwars PRIVATE
     ${SDL2_INCLUDE_DIRS}
     ${OPENGL_INCLUDE_DIRS}
     ${GLEW_INCLUDE_DIRS}
+    ${LUA_INCLUDE_DIRS}
 )
 
 # Link libraries
 target_link_libraries(carwars
     Jolt
+    sol2::sol2
     ${SDL2_LIBRARIES}
     ${OPENGL_LIBRARIES}
     GLEW::GLEW
+    ${LUA_LIBRARIES}
     m
 )
 
 # Jolt compile definitions
 target_compile_definitions(carwars PRIVATE
-    JPH_PROFILE_ENABLED
     JPH_DEBUG_RENDERER
 )
 
