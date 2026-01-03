@@ -12,6 +12,8 @@ Arena Combat Engine combines the strategic depth of tabletop-style turn-based ga
 - **Lua Scripting** - Write "Reflex Scripts" that control your vehicle during maneuvers
 - **VTT Aesthetic** - Virtual tabletop feel with 3D physics reality
 
+![Arena Combat Engine](docs/images/screenshot1.png)
+
 ## The Vision
 
 Instead of predetermined animation arcs, maneuvers are executed by **Lua Reflex Scripts** that run during physics simulation:
