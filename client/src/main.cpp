@@ -24,6 +24,7 @@
 #include "render/mesh.h"
 #include "render/obj_loader.h"
 #include "render/texture.h"
+#include "render/particles.h"
 #include "game/entity.h"
 #include "render/line_render.h"
 #include "ui/ui_render.h"
@@ -941,6 +942,51 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "Failed to initialize line renderer\n");
     }
 
+    // Initialize particle system
+    ParticleRenderer particle_renderer;
+    ParticleEmitter smoke_emitter;
+    ParticleEmitter explosion_emitter;
+
+    // Struct to pass multiple emitters to callback
+    struct ParticleEmitters {
+        ParticleEmitter* smoke;
+        ParticleEmitter* explosion;
+    } emitters = { &smoke_emitter, &explosion_emitter };
+
+    bool has_particles = particle_renderer_init(&particle_renderer);
+    if (has_particles) {
+        // Load particle effects from JSON
+        if (!particle_effects_load("../../assets/data/effects/particles.json")) {
+            fprintf(stderr, "Warning: Failed to load particle effects, using hardcoded defaults\n");
+        }
+
+        // Initialize emitters for each effect type
+        particle_emitter_init_smoke(&smoke_emitter);  // tire_smoke
+        if (!particle_emitter_init(&explosion_emitter, "explosion")) {
+            fprintf(stderr, "Warning: explosion effect not found\n");
+        }
+
+        // Register particle spawn callback for Lua scripts
+        if (script_engine) {
+            reflex_set_particle_callback(script_engine,
+                [](const char* effect_name, float x, float y, float z, float intensity, void* user_data) {
+                    ParticleEmitters* em = (ParticleEmitters*)user_data;
+                    Vec3 pos = vec3(x, y, z);
+
+                    // Check which emitter matches the requested effect
+                    if (strcmp(em->smoke->effect.name, effect_name) == 0) {
+                        particle_emitter_spawn(em->smoke, pos, intensity);
+                    } else if (strcmp(em->explosion->effect.name, effect_name) == 0) {
+                        particle_emitter_spawn(em->explosion, pos, intensity);
+                    }
+                },
+                &emitters
+            );
+        }
+    } else {
+        fprintf(stderr, "Failed to initialize particle renderer\n");
+    }
+
     // Light direction (sun from upper-right-front)
     Vec3 light_dir = vec3_normalize(vec3(0.5f, -1.0f, 0.3f));
 
@@ -1677,6 +1723,48 @@ int main(int argc, char* argv[]) {
         // Always step physics simulation (gravity, collisions, etc. always active)
         physics_step(&physics, dt);
 
+        // Update particle systems
+        if (has_particles) {
+            particle_emitter_update(&smoke_emitter, dt);
+            particle_emitter_update(&explosion_emitter, dt);
+
+            // Trigger settings from JSON effect
+            float min_vel = smoke_emitter.effect.min_velocity;
+            float slip_thresh = smoke_emitter.effect.slip_threshold;
+
+            // Spawn smoke at all vehicles' rear wheels when slipping
+            for (int v = 0; v < physics.vehicle_count; v++) {
+                if (!physics.vehicles[v].active) continue;
+
+                // Only spawn smoke if car is moving
+                float velocity = 0.0f;
+                physics_vehicle_get_velocity(&physics, v, &velocity);
+                if (fabsf(velocity) < min_vel) continue;
+
+                WheelState ws[4];
+                physics_vehicle_get_wheel_states(&physics, v, ws);
+
+                // Spawn at rear wheels (indices 2 and 3) when slipping
+                for (int w = 2; w < 4; w++) {
+                    float slip = fabsf(ws[w].longitudinal_slip);
+                    if (slip > slip_thresh) {
+                        float intensity = (slip - slip_thresh) / (1.0f - slip_thresh);
+                        if (intensity > 1.0f) intensity = 1.0f;
+
+                        // Spawn at ground level under wheel
+                        Vec3 spawn_pos = ws[w].position;
+                        spawn_pos.y = smoke_emitter.effect.spawn_height;
+
+                        // Spawn 1-2 particles based on intensity
+                        particle_emitter_spawn(&smoke_emitter, spawn_pos, intensity);
+                        if (intensity > 0.6f) {
+                            particle_emitter_spawn(&smoke_emitter, spawn_pos, intensity);
+                        }
+                    }
+                }
+            }
+        }
+
         // Check if GUI-triggered turn has completed and re-pause physics
         if (planning.turn_executing && planning.turn_vehicle_id >= 0) {
             // Poll Lua to check if turn is still active
@@ -1870,6 +1958,18 @@ int main(int argc, char* argv[]) {
             }
         }
         box_renderer_end(&box_renderer);
+
+        // Draw particles (after solid geometry, before lines/UI)
+        if (has_particles) {
+            if (smoke_emitter.active_count > 0) {
+                particle_renderer_draw(&particle_renderer, &smoke_emitter,
+                                       &view, &projection, camera.position);
+            }
+            if (explosion_emitter.active_count > 0) {
+                particle_renderer_draw(&particle_renderer, &explosion_emitter,
+                                       &view, &projection, camera.position);
+            }
+        }
 
         // All line rendering in one batch (wheels, ghost path, debug)
         if (has_lines) {
@@ -2535,6 +2635,7 @@ int main(int argc, char* argv[]) {
     if (script_engine) reflex_destroy(script_engine);
     physics_destroy(&physics);
     if (has_lines) line_renderer_destroy(&line_renderer);
+    if (has_particles) particle_renderer_destroy(&particle_renderer);
     if (has_text) text_renderer_destroy(&text_renderer);
     ui_renderer_destroy(&ui_renderer);
     // Destroy all vehicle meshes and textures

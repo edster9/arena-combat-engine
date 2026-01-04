@@ -1,0 +1,33 @@
+{
+  "tire_smoke": {
+    "enabled": true,
+    "intensity": 1.0,
+    "slip_threshold": 0.15,
+    "min_velocity": 1.0,
+    "color": [0.6, 0.58, 0.55],
+    "size": [0.2, 0.4],
+    "lifetime": [0.5, 0.9],
+    "size_growth": 1.8,
+    "spread": 0.8,
+    "gravity": [0.0, 0.4, 0.0],
+    "spawn_scatter": 0.15,
+    "vertical_velocity": [0.2, 0.6],
+    "alpha": [0.5, 0.8],
+    "spawn_height": 0.08
+  },
+  "explosion": {
+    "enabled": true,
+    "intensity": 1.0,
+    "start_color": [1.0, 0.9, 0.5],
+    "end_color": [0.3, 0.1, 0.0],
+    "size": [0.3, 0.6],
+    "lifetime": [0.3, 0.6],
+    "size_growth": 3.0,
+    "spread": 2.0,
+    "gravity": [0.0, -0.5, 0.0],
+    "spawn_scatter": 0.3,
+    "vertical_velocity": [1.0, 3.0],
+    "alpha": [0.8, 1.0],
+    "spawn_height": 0.5
+  }
+}

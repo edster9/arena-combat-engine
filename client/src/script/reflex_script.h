@@ -236,6 +236,20 @@ ScriptEventData reflex_event_data_create(void);
 void reflex_event_data_add_float(ScriptEventData* data, const char* key, float value);
 void reflex_event_data_add_string(ScriptEventData* data, const char* key, const char* value);
 
+// === Particle Spawning ===
+
+// Callback type for particle spawning
+// effect_name: particle effect ID from JSON (e.g., "tire_smoke", "explosion")
+// x, y, z: spawn position
+// intensity: 0.0 to 1.0
+typedef void (*ParticleSpawnCallback)(const char* effect_name, float x, float y, float z, float intensity, void* user_data);
+
+// Set the callback for particle spawning from Lua
+// user_data is passed to every callback invocation
+void reflex_set_particle_callback(ReflexScriptEngine* engine,
+                                   ParticleSpawnCallback callback,
+                                   void* user_data);
+
 #ifdef __cplusplus
 }
 #endif

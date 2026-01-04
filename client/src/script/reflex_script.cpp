@@ -22,6 +22,10 @@ struct ReflexScriptEngine {
     sol::state lua;
     sol::table master;  // The master script module
     bool valid;
+
+    // Particle spawning callback
+    ParticleSpawnCallback particle_callback;
+    void* particle_user_data;
 };
 
 // Helper: convert radians to degrees
@@ -39,6 +43,8 @@ extern "C" {
 ReflexScriptEngine* reflex_create(void) {
     auto* engine = new ReflexScriptEngine();
     engine->valid = false;
+    engine->particle_callback = nullptr;
+    engine->particle_user_data = nullptr;
 
     // Open libraries
     engine->lua.open_libraries(
@@ -48,6 +54,16 @@ ReflexScriptEngine* reflex_create(void) {
         sol::lib::table,
         sol::lib::package,
         sol::lib::io  // For loadfile
+    );
+
+    // Register global spawn_particle function for Lua
+    // Usage: spawn_particle("explosion", x, y, z, intensity)
+    engine->lua.set_function("spawn_particle",
+        [engine](const std::string& effect_name, float x, float y, float z, float intensity) {
+            if (engine->particle_callback) {
+                engine->particle_callback(effect_name.c_str(), x, y, z, intensity, engine->particle_user_data);
+            }
+        }
     );
 
     // Set up package.path for module loading
@@ -564,6 +580,14 @@ void reflex_send_event(ReflexScriptEngine* engine,
         sol::error err = result;
         std::cerr << "[Reflex] on_event error: " << err.what() << std::endl;
     }
+}
+
+void reflex_set_particle_callback(ReflexScriptEngine* engine,
+                                   ParticleSpawnCallback callback,
+                                   void* user_data) {
+    if (!engine) return;
+    engine->particle_callback = callback;
+    engine->particle_user_data = user_data;
 }
 
 } // extern "C"

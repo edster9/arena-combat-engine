@@ -2,10 +2,11 @@
     Tests Script
 
     Provides automated test sequence control for maneuver testing.
-    Handles Y key binding to start/stop test sequences.
+    Handles key bindings for tests and effects.
 
     Input Bindings:
     - Y: Toggle test sequence (start basic_bends or stop if running)
+    - E: Spawn explosion at selected vehicle position
 
     Context (ctx) structure:
     - ctx.id          : Entity ID (vehicle_id)
@@ -16,8 +17,9 @@
     - ctx.controls    : Control outputs (steering, throttle, brake)
 ]]
 
--- Key codes (from platform.h)
-local KEY_Y = 28
+-- Key codes (from platform.h - SDL scancodes)
+local KEY_E = 8   -- E key for explosion
+local KEY_Y = 28  -- Y key for test sequence
 
 -- Load the test sequence module
 local test_sequence = require("modules/test_sequence")
@@ -28,11 +30,18 @@ local maneuver = require("modules/maneuver")
 -- Load performance timer (0-60, quarter mile, etc.)
 local timer_0_60 = require("modules/timer_0_60")
 
+-- Cache vehicle positions for use in on_input (which doesn't have telemetry)
+local vehicle_positions = {}
+
 -- ============================================================================
 -- MAIN UPDATE
 -- ============================================================================
 
 function update(ctx)
+    -- Cache this vehicle's position for input handler
+    local pos = ctx.telemetry.position
+    vehicle_positions[ctx.id] = { x = pos.x, y = pos.y, z = pos.z }
+
     -- Run test sequence if active for this entity
     if test_sequence.is_active() and ctx.id == test_sequence.state.target_entity then
         test_sequence.update(ctx)
@@ -49,6 +58,21 @@ end
 function on_input(input_ctx)
     local keys = input_ctx.keys
     local vehicle_id = input_ctx.vehicle_id
+
+    -- E: Spawn explosion at selected vehicle
+    if keys[KEY_E] then
+        local pos = vehicle_positions[vehicle_id]
+        if pos then
+            -- Spawn multiple particles for a burst effect
+            for i = 1, 8 do
+                spawn_particle("explosion", pos.x, pos.y + 0.5, pos.z, 1.0)
+            end
+            print(string.format("[Tests] Explosion at vehicle %d (%.1f, %.1f, %.1f)",
+                vehicle_id, pos.x, pos.y, pos.z))
+        else
+            print("[Tests] E pressed but no position cached for vehicle " .. tostring(vehicle_id))
+        end
+    end
 
     -- Y: Toggle test sequence
     if keys[KEY_Y] then
