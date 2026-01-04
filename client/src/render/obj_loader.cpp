@@ -85,7 +85,16 @@ static void parse_face_vertex(const char* str, int* v, int* vt, int* vn) {
     *vn = atoi(slash2 + 1);
 }
 
-bool obj_load(LoadedMesh* mesh, const char* filepath) {
+// Helper to check if a group name is in the filter list
+static bool group_in_filter(const char* group_name, const char** groups, int num_groups) {
+    if (groups == NULL || num_groups == 0) return true;  // No filter = include all
+    for (int i = 0; i < num_groups; i++) {
+        if (strcmp(group_name, groups[i]) == 0) return true;
+    }
+    return false;
+}
+
+bool obj_load_groups(LoadedMesh* mesh, const char* filepath, const char** groups, int num_groups) {
     mesh->valid = false;
     mesh->vao = 0;
     mesh->vbo = 0;
@@ -102,6 +111,8 @@ bool obj_load(LoadedMesh* mesh, const char* filepath) {
     // Temporary storage for parsed data
     FloatArray positions, normals, texcoords;
     IntArray face_v, face_vt, face_vn;
+    // Track which vertices are actually used for bounds calculation
+    IntArray used_vertices;
 
     float_array_init(&positions);
     float_array_init(&normals);
@@ -109,11 +120,23 @@ bool obj_load(LoadedMesh* mesh, const char* filepath) {
     int_array_init(&face_v);
     int_array_init(&face_vt);
     int_array_init(&face_vn);
+    int_array_init(&used_vertices);
+
+    // Current group tracking
+    char current_group[64] = "";
+    bool include_current_group = (groups == NULL || num_groups == 0);
 
     char line[512];
     while (fgets(line, sizeof(line), file)) {
         // Skip comments and empty lines
         if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') {
+            continue;
+        }
+
+        // Group declaration
+        if (line[0] == 'g' && line[1] == ' ') {
+            sscanf(line + 2, "%63s", current_group);
+            include_current_group = group_in_filter(current_group, groups, num_groups);
             continue;
         }
 
@@ -124,14 +147,7 @@ bool obj_load(LoadedMesh* mesh, const char* filepath) {
             float_array_push(&positions, x);
             float_array_push(&positions, y);
             float_array_push(&positions, z);
-
-            // Update bounds
-            if (x < mesh->bounds_min.x) mesh->bounds_min.x = x;
-            if (y < mesh->bounds_min.y) mesh->bounds_min.y = y;
-            if (z < mesh->bounds_min.z) mesh->bounds_min.z = z;
-            if (x > mesh->bounds_max.x) mesh->bounds_max.x = x;
-            if (y > mesh->bounds_max.y) mesh->bounds_max.y = y;
-            if (z > mesh->bounds_max.z) mesh->bounds_max.z = z;
+            // Note: bounds calculated later from used vertices only
         }
         // Vertex normal
         else if (line[0] == 'v' && line[1] == 'n' && line[2] == ' ') {
@@ -148,8 +164,8 @@ bool obj_load(LoadedMesh* mesh, const char* filepath) {
             float_array_push(&texcoords, u);
             float_array_push(&texcoords, v);
         }
-        // Face (triangles only for now)
-        else if (line[0] == 'f' && line[1] == ' ') {
+        // Face (triangles only for now) - only include if in active group
+        else if (line[0] == 'f' && line[1] == ' ' && include_current_group) {
             char v1[64], v2[64], v3[64], v4[64];
             int count = sscanf(line + 2, "%s %s %s %s", v1, v2, v3, v4);
 
@@ -173,6 +189,11 @@ bool obj_load(LoadedMesh* mesh, const char* filepath) {
                 int_array_push(&face_vt, vt3);
                 int_array_push(&face_vn, vn3);
 
+                // Track used vertices for bounds
+                int_array_push(&used_vertices, vi1);
+                int_array_push(&used_vertices, vi2);
+                int_array_push(&used_vertices, vi3);
+
                 // If quad, add second triangle
                 if (count >= 4) {
                     int vi4, vt4, vn4;
@@ -187,11 +208,30 @@ bool obj_load(LoadedMesh* mesh, const char* filepath) {
                     int_array_push(&face_v, vi4);
                     int_array_push(&face_vt, vt4);
                     int_array_push(&face_vn, vn4);
+
+                    int_array_push(&used_vertices, vi4);
                 }
             }
         }
     }
     fclose(file);
+
+    // Calculate bounds from used vertices only
+    for (int i = 0; i < used_vertices.count; i++) {
+        int vi = used_vertices.data[i] - 1;  // OBJ indices are 1-based
+        if (vi >= 0 && vi * 3 + 2 < positions.count) {
+            float x = positions.data[vi * 3 + 0];
+            float y = positions.data[vi * 3 + 1];
+            float z = positions.data[vi * 3 + 2];
+            if (x < mesh->bounds_min.x) mesh->bounds_min.x = x;
+            if (y < mesh->bounds_min.y) mesh->bounds_min.y = y;
+            if (z < mesh->bounds_min.z) mesh->bounds_min.z = z;
+            if (x > mesh->bounds_max.x) mesh->bounds_max.x = x;
+            if (y > mesh->bounds_max.y) mesh->bounds_max.y = y;
+            if (z > mesh->bounds_max.z) mesh->bounds_max.z = z;
+        }
+    }
+    int_array_free(&used_vertices);
 
     // Build interleaved vertex buffer (position + normal)
     int num_face_verts = face_v.count;
@@ -282,6 +322,10 @@ bool obj_load(LoadedMesh* mesh, const char* filepath) {
 
     printf("Loaded OBJ: %s (%d vertices)\n", filepath, mesh->vertex_count);
     return true;
+}
+
+bool obj_load(LoadedMesh* mesh, const char* filepath) {
+    return obj_load_groups(mesh, filepath, NULL, 0);
 }
 
 void obj_destroy(LoadedMesh* mesh) {

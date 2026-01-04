@@ -19,6 +19,12 @@ typedef struct LoadedMesh {
 // Returns true on success, false on failure
 bool obj_load(LoadedMesh* mesh, const char* filepath);
 
+// Load specific groups from an OBJ file
+// groups: array of group names to include (e.g., {"body", "spoiler"})
+// num_groups: number of groups in the array
+// If groups is NULL or num_groups is 0, loads all groups (same as obj_load)
+bool obj_load_groups(LoadedMesh* mesh, const char* filepath, const char** groups, int num_groups);
+
 // Free GPU resources
 void obj_destroy(LoadedMesh* mesh);
 

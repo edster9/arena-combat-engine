@@ -927,11 +927,17 @@ int physics_create_vehicle(PhysicsWorld* pw, ::Vec3 position, float rotation_y, 
     // Create car body shape with center of mass from config
     // CoM offset is normalized (-1 to 1 range per axis), multiply by half-dimensions
     // Lower Y = more stable, less likely to flip during aggressive turns
-    JPH::Vec3 comOffset(
-        config->center_of_mass.x * halfWidth,
-        config->center_of_mass.y * halfHeight,
-        config->center_of_mass.z * halfLength
-    );
+    float comX = config->center_of_mass.x * halfWidth;
+    float comY = config->center_of_mass.y * halfHeight;
+    float comZ = config->center_of_mass.z * halfLength;
+    JPH::Vec3 comOffset(comX, comY, comZ);
+
+    printf("  Physics box: %.2f x %.2f x %.2f (half: %.2f x %.2f x %.2f)\n",
+           config->chassis_length, config->chassis_width, config->chassis_height,
+           halfLength, halfWidth, halfHeight);
+    printf("  CoM normalized: [%.2f, %.2f, %.2f] -> offset: [%.3f, %.3f, %.3f]\n",
+           config->center_of_mass.x, config->center_of_mass.y, config->center_of_mass.z,
+           comX, comY, comZ);
     RefConst<Shape> carShape = OffsetCenterOfMassShapeSettings(
         comOffset,
         new BoxShape(JPH::Vec3(halfWidth, halfHeight, halfLength))
@@ -1417,6 +1423,39 @@ void physics_vehicle_set_heading(PhysicsWorld* pw, int vehicle_id, float heading
            old_heading * 180.0f / 3.14159f, heading_delta * 180.0f / 3.14159f);
 }
 
+void physics_vehicle_flip(PhysicsWorld* pw, int vehicle_id)
+{
+    if (!pw || !pw->impl) return;
+    if (vehicle_id < 0 || vehicle_id >= MAX_PHYSICS_VEHICLES) return;
+
+    PhysicsVehicle* v = &pw->vehicles[vehicle_id];
+    if (!v->active || !v->impl) return;
+
+    auto* impl = pw->impl;
+    auto* vimpl = v->impl;
+    BodyInterface& bodyInterface = impl->physicsSystem->GetBodyInterface();
+
+    // Get current position and rotation
+    RVec3 pos = bodyInterface.GetPosition(vimpl->bodyId);
+    Quat old_rot = bodyInterface.GetRotation(vimpl->bodyId);
+
+    // Rotate 180 degrees around the forward axis (Z in our coordinate system)
+    // This flips the car upside down while maintaining its heading direction
+    Quat flip_rot = Quat::sRotation(JPH::Vec3::sAxisZ(), 3.14159f);
+    Quat new_rot = old_rot * flip_rot;
+
+    // Lift the car up a bit so it doesn't immediately clip ground
+    RVec3 new_pos = pos + RVec3(0, 1.5f, 0);
+
+    // Apply changes - zero out velocities for clean test
+    bodyInterface.SetPositionAndRotation(vimpl->bodyId, new_pos, new_rot, EActivation::Activate);
+    bodyInterface.SetLinearVelocity(vimpl->bodyId, JPH::Vec3::sZero());
+    bodyInterface.SetAngularVelocity(vimpl->bodyId, JPH::Vec3::sZero());
+
+    printf("[Physics] Flipped vehicle %d upside down (lifted to y=%.2f)\n",
+           vehicle_id, static_cast<float>(new_pos.GetY()));
+}
+
 void physics_vehicle_set_kinematic(PhysicsWorld* pw, int vehicle_id, bool kinematic)
 {
     if (!pw || !pw->impl) return;
@@ -1726,21 +1765,41 @@ void physics_debug_draw(PhysicsWorld* pw, struct LineRenderer* lr)
         }
 
         ::Vec3 red = {0.8f, 0.2f, 0.2f};
-        // Bottom
+        ::Vec3 green = {0.2f, 0.8f, 0.2f};
+
+        // Back face (corners 0-3 at z=-hl) - RED
         line_renderer_draw_line(lr, corners[0], corners[1], red, 1.0f);
         line_renderer_draw_line(lr, corners[1], corners[2], red, 1.0f);
         line_renderer_draw_line(lr, corners[2], corners[3], red, 1.0f);
         line_renderer_draw_line(lr, corners[3], corners[0], red, 1.0f);
-        // Top
-        line_renderer_draw_line(lr, corners[4], corners[5], red, 1.0f);
-        line_renderer_draw_line(lr, corners[5], corners[6], red, 1.0f);
-        line_renderer_draw_line(lr, corners[6], corners[7], red, 1.0f);
-        line_renderer_draw_line(lr, corners[7], corners[4], red, 1.0f);
-        // Verticals
+
+        // Front face (corners 4-7 at z=+hl) - GREEN (physics forward)
+        line_renderer_draw_line(lr, corners[4], corners[5], green, 1.0f);
+        line_renderer_draw_line(lr, corners[5], corners[6], green, 1.0f);
+        line_renderer_draw_line(lr, corners[6], corners[7], green, 1.0f);
+        line_renderer_draw_line(lr, corners[7], corners[4], green, 1.0f);
+
+        // Verticals - RED for back, GREEN for front
         line_renderer_draw_line(lr, corners[0], corners[4], red, 1.0f);
         line_renderer_draw_line(lr, corners[1], corners[5], red, 1.0f);
-        line_renderer_draw_line(lr, corners[2], corners[6], red, 1.0f);
-        line_renderer_draw_line(lr, corners[3], corners[7], red, 1.0f);
+        line_renderer_draw_line(lr, corners[2], corners[6], green, 1.0f);
+        line_renderer_draw_line(lr, corners[3], corners[7], green, 1.0f);
+
+        // Draw forward arrow from center in +Z direction (physics forward)
+        RVec3 center = transform.GetTranslation();
+        JPH::Vec3 localForward(0, 0, hl * 1.5f);  // Arrow extends past front
+        JPH::Vec3 localArrowL(-hw * 0.3f, 0, hl * 1.2f);  // Arrow head left
+        JPH::Vec3 localArrowR(hw * 0.3f, 0, hl * 1.2f);   // Arrow head right
+        RVec3 worldFwd = transform * localForward;
+        RVec3 worldArrowL = transform * localArrowL;
+        RVec3 worldArrowR = transform * localArrowR;
+        ::Vec3 ctr = {(float)center.GetX(), (float)center.GetY(), (float)center.GetZ()};
+        ::Vec3 fwd = {(float)worldFwd.GetX(), (float)worldFwd.GetY(), (float)worldFwd.GetZ()};
+        ::Vec3 arrL = {(float)worldArrowL.GetX(), (float)worldArrowL.GetY(), (float)worldArrowL.GetZ()};
+        ::Vec3 arrR = {(float)worldArrowR.GetX(), (float)worldArrowR.GetY(), (float)worldArrowR.GetZ()};
+        line_renderer_draw_line(lr, ctr, fwd, green, 2.0f);
+        line_renderer_draw_line(lr, fwd, arrL, green, 2.0f);
+        line_renderer_draw_line(lr, fwd, arrR, green, 2.0f);
 
         // Draw wheels - use stored wheel rotation matrix from Jolt
         // POC draws cylinder in local X-Z plane with Y as axle direction

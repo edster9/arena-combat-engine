@@ -135,16 +135,12 @@ VehicleJSON config_default_vehicle(void) {
 static bool validate_vehicle_config(const VehicleJSON* v, const char* filepath) {
     bool valid = true;
 
-    // Check chassis dimensions
+    // Check chassis mass (required)
     if (v->chassis_mass <= 0.0f) {
         fprintf(stderr, "ERROR [%s]: Missing or invalid chassis mass\n", filepath);
         valid = false;
     }
-    if (v->chassis_length <= 0.0f || v->chassis_width <= 0.0f || v->chassis_height <= 0.0f) {
-        fprintf(stderr, "ERROR [%s]: Missing or invalid chassis dimensions (L=%.2f W=%.2f H=%.2f)\n",
-                filepath, v->chassis_length, v->chassis_width, v->chassis_height);
-        valid = false;
-    }
+    // Note: chassis dimensions can be 0 if derived from OBJ bounds at runtime
 
     // Check wheels
     if (v->wheel_count < 4) {
@@ -234,6 +230,9 @@ typedef struct {
     int modifier_count;
     float radius;
     float width;
+    // Which wheel IDs this tire applies to (new format)
+    char wheel_ids[MAX_WHEEL_MOUNTS][16];
+    int wheel_count;
 } ParsedTireConfig;
 
 static ParsedTireConfig s_parsed_tires[16];
@@ -275,15 +274,42 @@ static void parse_tires_array(cJSON* tires_arr) {
             tire->width = 0.2f;
         }
 
+        // Parse wheels array (which wheel positions this tire applies to)
+        tire->wheel_count = 0;
+        cJSON* wheels_arr = cJSON_GetObjectItem(t, "wheels");
+        if (wheels_arr && cJSON_IsArray(wheels_arr)) {
+            cJSON* wid;
+            cJSON_ArrayForEach(wid, wheels_arr) {
+                if (tire->wheel_count >= MAX_WHEEL_MOUNTS) break;
+                if (cJSON_IsString(wid)) {
+                    strncpy(tire->wheel_ids[tire->wheel_count], wid->valuestring, 15);
+                    tire->wheel_ids[tire->wheel_count][15] = '\0';
+                    tire->wheel_count++;
+                }
+            }
+        }
+
         s_parsed_tire_count++;
     }
 }
 
-// Find parsed tire by ID
+// Find parsed tire by tire ID (e.g., "front_tires")
 static ParsedTireConfig* find_parsed_tire(const char* id) {
     for (int i = 0; i < s_parsed_tire_count; i++) {
         if (strcmp(s_parsed_tires[i].id, id) == 0) {
             return &s_parsed_tires[i];
+        }
+    }
+    return NULL;
+}
+
+// Find parsed tire that applies to a given wheel ID (e.g., "FL")
+static ParsedTireConfig* find_tire_for_wheel(const char* wheel_id) {
+    for (int i = 0; i < s_parsed_tire_count; i++) {
+        for (int w = 0; w < s_parsed_tires[i].wheel_count; w++) {
+            if (strcmp(s_parsed_tires[i].wheel_ids[w], wheel_id) == 0) {
+                return &s_parsed_tires[i];
+            }
         }
     }
     return NULL;
@@ -522,13 +548,25 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
 
     json_get_string(root, "name", out->name, MAX_NAME_LENGTH, "default");
 
-    // Chassis - check for equipment reference (body) or direct values
+    // Chassis - can be string ID or object with body reference
+    const ChassisEquipment* chassis_equip = NULL;
     cJSON* chassis = cJSON_GetObjectItem(root, "chassis");
     if (chassis) {
-        cJSON* body_ref = cJSON_GetObjectItem(chassis, "body");
-        if (body_ref && cJSON_IsString(body_ref)) {
-            // New format: look up chassis by ID
-            const ChassisEquipment* chassis_equip = equipment_find_chassis(body_ref->valuestring);
+        const char* chassis_id = NULL;
+
+        if (cJSON_IsString(chassis)) {
+            // New format: direct string reference e.g., "chassis": "compact"
+            chassis_id = chassis->valuestring;
+        } else if (cJSON_IsObject(chassis)) {
+            // Legacy format: object with body field e.g., "chassis": { "body": "compact" }
+            cJSON* body_ref = cJSON_GetObjectItem(chassis, "body");
+            if (body_ref && cJSON_IsString(body_ref)) {
+                chassis_id = body_ref->valuestring;
+            }
+        }
+
+        if (chassis_id) {
+            chassis_equip = equipment_find_chassis(chassis_id);
             if (chassis_equip) {
                 // Start with defaults from chassis equipment
                 out->chassis_length = chassis_equip->length_default;
@@ -543,20 +581,6 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
                     chassis_equip->center_of_mass[2]
                 );
 
-                // Check for dimension overrides in vehicle JSON
-                cJSON* len_override = cJSON_GetObjectItem(chassis, "length");
-                cJSON* wid_override = cJSON_GetObjectItem(chassis, "width");
-                cJSON* hgt_override = cJSON_GetObjectItem(chassis, "height");
-                if (len_override && cJSON_IsNumber(len_override)) {
-                    out->chassis_length = (float)len_override->valuedouble;
-                }
-                if (wid_override && cJSON_IsNumber(wid_override)) {
-                    out->chassis_width = (float)wid_override->valuedouble;
-                }
-                if (hgt_override && cJSON_IsNumber(hgt_override)) {
-                    out->chassis_height = (float)hgt_override->valuedouble;
-                }
-
                 // Store chassis HC modifier
                 hc_chassis = chassis_equip->base_hc_modifier;
 
@@ -566,10 +590,10 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
                        out->physics.center_of_mass.x, out->physics.center_of_mass.y,
                        out->physics.center_of_mass.z, hc_chassis);
             } else {
-                fprintf(stderr, "Warning: Chassis '%s' not found, using defaults\n", body_ref->valuestring);
+                fprintf(stderr, "Warning: Chassis '%s' not found, using defaults\n", chassis_id);
             }
-        } else {
-            // Legacy format: direct values
+        } else if (cJSON_IsObject(chassis)) {
+            // Legacy format: direct dimension values in object
             out->chassis_mass = json_get_float(chassis, "mass", out->chassis_mass);
             out->chassis_length = json_get_float(chassis, "length", out->chassis_length);
             out->chassis_width = json_get_float(chassis, "width", out->chassis_width);
@@ -608,10 +632,49 @@ bool config_load_vehicle(const char* filepath, VehicleJSON* out) {
         parse_tires_array(tires);
     }
 
-    // Parse wheels array
+    // Build wheels: new format uses chassis wheel_mounts + tires, legacy uses wheels array
     cJSON* wheels = cJSON_GetObjectItem(root, "wheels");
     if (wheels && cJSON_IsArray(wheels)) {
+        // Legacy format: parse wheels array directly
         parse_wheels(wheels, out);
+    } else if (chassis_equip && chassis_equip->wheel_mount_count > 0) {
+        // New format: build wheels from chassis wheel_mounts + tire info
+        out->wheel_count = 0;
+        for (int i = 0; i < chassis_equip->wheel_mount_count && i < MAX_WHEELS; i++) {
+            const WheelMount* mount = &chassis_equip->wheel_mounts[i];
+            WheelDef* wheel = &out->wheels[out->wheel_count];
+
+            // Copy ID and position from chassis wheel mount
+            strncpy(wheel->id, mount->id, 15);
+            wheel->id[15] = '\0';
+            wheel->position = vec3(mount->position[0], mount->position[1], mount->position[2]);
+
+            // Initialize semantic fields
+            wheel->axle_index = -1;
+
+            // Infer wheel side from Z position (positive Z = left)
+            wheel->side = infer_wheel_side(wheel->position.z);
+
+            // Get tire info for this wheel
+            ParsedTireConfig* tire = find_tire_for_wheel(mount->id);
+            if (tire) {
+                wheel->radius = tire->radius;
+                wheel->width = tire->width;
+            } else {
+                // Fallback to defaults
+                wheel->radius = out->defaults.wheel.radius > 0 ? out->defaults.wheel.radius : 0.35f;
+                wheel->width = out->defaults.wheel.width > 0 ? out->defaults.wheel.width : 0.2f;
+            }
+
+            // Calculate mass from dimensions or use default
+            float default_mass = out->defaults.wheel.mass;
+            if (default_mass <= 0.0f && wheel->radius > 0.0f && wheel->width > 0.0f) {
+                default_mass = 15.0f * (wheel->radius / 0.35f) * (wheel->width / 0.2f);
+            }
+            wheel->mass = default_mass > 0.0f ? default_mass : 15.0f;
+
+            out->wheel_count++;
+        }
     }
 
     // Debug: print wheel positions

@@ -56,6 +56,18 @@
 // Car dimensions (for model scaling and ghost preview)
 #define CAR_LENGTH 3.5f
 
+// Vehicle mesh components (loaded separately for proper wheel positioning)
+typedef struct {
+    LoadedMesh body;       // Body + spoiler (no wheels)
+    LoadedMesh wheel;      // Single wheel mesh (reused for all 4)
+    Vec3 wheel_center;     // Center of wheel mesh (for positioning)
+    float body_scale;      // Scale for body mesh
+    float wheel_scale;     // Scale for wheel mesh
+    bool loaded;           // True if meshes loaded successfully
+} VehicleMesh;
+
+static VehicleMesh g_vehicle_mesh = {0};
+
 // Game mode is determined by physics pause state:
 // - physics.paused = true  → Turn Based mode (planning turns)
 // - physics.paused = false → Freestyle mode (free driving)
@@ -305,21 +317,33 @@ static void draw_physics_vehicles(BoxRenderer* r, PhysicsWorld* pw, int selected
         // Get vehicle config for dimensions
         VehicleConfig* cfg = &pw->vehicles[i].config;
 
-        // Draw chassis as a solid box with full 3D rotation
-        Vec3 chassis_size = vec3(cfg->chassis_width, cfg->chassis_height, cfg->chassis_length);
-        box_renderer_draw_rotated_matrix(r, pos, chassis_size, rot_matrix, color);
+        // Draw chassis - use loaded mesh if available, otherwise box
+        if (g_vehicle_mesh.loaded) {
+            // Use full rotation matrix for proper roll/pitch during flips
+            // Pre-translate to offset mesh center to match physics center
+            Vec3 body_center = obj_get_center(&g_vehicle_mesh.body);
+            Vec3 pre_translate = vec3(-body_center.x, -body_center.y, -body_center.z);
 
-        // Draw front indicator (yellow bar at front of car)
-        float front_offset = cfg->chassis_length * 0.35f;
-        float indicator_height = 0.3f;
-        float local_y = cfg->chassis_height * 0.5f + indicator_height * 0.5f;
-        Vec3 front_pos = vec3(
-            pos.x + rot_matrix[2] * front_offset + rot_matrix[1] * local_y,
-            pos.y + rot_matrix[5] * front_offset + rot_matrix[4] * local_y,
-            pos.z + rot_matrix[8] * front_offset + rot_matrix[7] * local_y
-        );
-        Vec3 front_size = vec3(cfg->chassis_width * 0.7f, indicator_height, 0.4f);
-        box_renderer_draw_rotated_matrix(r, front_pos, front_size, rot_matrix, front_color);
+            box_renderer_draw_mesh_rotated(r, g_vehicle_mesh.body.vao, g_vehicle_mesh.body.vertex_count,
+                                           pos, g_vehicle_mesh.body_scale, rot_matrix,
+                                           pre_translate, color);
+            // Wheels rendered separately by draw_vehicle_wheels_mesh()
+        } else {
+            Vec3 chassis_size = vec3(cfg->chassis_width, cfg->chassis_height, cfg->chassis_length);
+            box_renderer_draw_rotated_matrix(r, pos, chassis_size, rot_matrix, color);
+
+            // Draw front indicator (yellow bar at front of car) - only for box mode
+            float front_offset = cfg->chassis_length * 0.35f;
+            float indicator_height = 0.3f;
+            float local_y = cfg->chassis_height * 0.5f + indicator_height * 0.5f;
+            Vec3 front_pos = vec3(
+                pos.x + rot_matrix[2] * front_offset + rot_matrix[1] * local_y,
+                pos.y + rot_matrix[5] * front_offset + rot_matrix[4] * local_y,
+                pos.z + rot_matrix[8] * front_offset + rot_matrix[7] * local_y
+            );
+            Vec3 front_size = vec3(cfg->chassis_width * 0.7f, indicator_height, 0.4f);
+            box_renderer_draw_rotated_matrix(r, front_pos, front_size, rot_matrix, front_color);
+        }
     }
 }
 
@@ -425,6 +449,61 @@ static void draw_vehicle_wheels(LineRenderer* lr, PhysicsWorld* pw) {
     }
 }
 
+// Draw wheels using loaded mesh at physics wheel positions
+// Uses Jolt wheel transform for correct display during rollovers
+static void draw_vehicle_wheels_mesh(BoxRenderer* r, PhysicsWorld* pw) {
+    if (!g_vehicle_mesh.loaded) return;
+
+    Vec3 wheel_color = vec3(0.2f, 0.2f, 0.22f);  // Dark tire color
+
+    // Pre-translation to center the wheel mesh at origin
+    // (wheel mesh may not be centered - offset it so rotation is around hub)
+    Vec3 center_offset = vec3(-g_vehicle_mesh.wheel_center.x,
+                              -g_vehicle_mesh.wheel_center.y,
+                              -g_vehicle_mesh.wheel_center.z);
+
+    for (int i = 0; i < pw->vehicle_count; i++) {
+        if (!pw->vehicles[i].active) continue;
+
+        VehicleConfig* cfg = &pw->vehicles[i].config;
+        WheelState wheels[4];
+        physics_vehicle_get_wheel_states(pw, i, wheels);
+
+        for (int w = 0; w < 4; w++) {
+            Vec3 center = wheels[w].position;
+            float radius = cfg->use_per_wheel_config ? cfg->wheel_radii[w] : cfg->wheel_radius;
+
+            // Scale wheel mesh to match physics wheel radius
+            float wheel_scale = g_vehicle_mesh.wheel_scale * (radius / 0.32f);
+            Vec3 scale = vec3(wheel_scale, wheel_scale, wheel_scale);
+
+            // Wheel rotation matrix from physics (column-major)
+            // Jolt: [0-2]=X (right), [3-5]=Y (axle), [6-8]=Z (up)
+            float* rot = wheels[w].rot_matrix;
+
+            // Kenney wheel mesh has axle along X, but Jolt expects axle along Y
+            // Apply 90° rotation around Z to fix: swap X<->Y axes
+            // New X = old Y, New Y = -old X
+            // Also flip for left-side wheels
+            bool is_left = (w == 0 || w == 2);  // FL=0, RL=2
+            float flip = is_left ? -1.0f : 1.0f;
+
+            // Corrected rotation: R_jolt * R_90z
+            // This swaps axes so mesh axle (X) aligns with Jolt axle (Y)
+            float corrected_rot[9] = {
+                rot[3] * flip, rot[4] * flip, rot[5] * flip,  // New X = Jolt Y (axle) * flip
+                -rot[0], -rot[1], -rot[2],                     // New Y = -Jolt X
+                rot[6], rot[7], rot[8]                         // Z unchanged
+            };
+
+            box_renderer_draw_mesh_matrix(r, g_vehicle_mesh.wheel.vao,
+                                          g_vehicle_mesh.wheel.vertex_count,
+                                          center, scale, corrected_rot,
+                                          center_offset, wheel_color);
+        }
+    }
+}
+
 // Create vehicles from scene config
 static void create_vehicles_from_scene(EntityManager* em, SceneJSON* scene, float car_scale) {
     for (int i = 0; i < scene->vehicle_count; i++) {
@@ -483,20 +562,44 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Load car model
-    LoadedMesh car_mesh;
-    float car_scale = 1.0f;
-    if (obj_load(&car_mesh, "../../assets/models/vehicles/sedan-sports.obj")) {
-        // Calculate scale to make car approximately CAR_LENGTH long
-        Vec3 model_size = obj_get_size(&car_mesh);
-        float model_length = fmaxf(model_size.x, model_size.z);  // Use longest horizontal axis
-        if (model_length > 0.001f) {
-            car_scale = CAR_LENGTH / model_length;
+    // Load car model components (body and wheel separately)
+    // Body: extracted chassis mesh (body + spoiler combined)
+    // Wheel: single wheel mesh, centered at origin, reused for all 4 wheels
+    const char* body_path = "../../assets/models/chassis/compact_body.obj";
+    const char* wheel_path = "../../assets/models/wheels/wheel_standard.obj";
+
+    bool body_loaded = obj_load(&g_vehicle_mesh.body, body_path);
+    bool wheel_loaded = obj_load(&g_vehicle_mesh.wheel, wheel_path);
+
+    if (body_loaded && wheel_loaded) {
+        // Calculate body scale based on body dimensions (without wheels)
+        Vec3 body_size = obj_get_size(&g_vehicle_mesh.body);
+        float body_length = fmaxf(body_size.x, body_size.z);  // Longest horizontal axis
+        if (body_length > 0.001f) {
+            g_vehicle_mesh.body_scale = CAR_LENGTH / body_length;
+        } else {
+            g_vehicle_mesh.body_scale = 1.0f;
         }
-        printf("Loaded car model: %.1f x %.1f x %.1f, scale: %.2f\n",
-               model_size.x, model_size.y, model_size.z, car_scale);
+
+        // Wheel scale: match physics wheel radius
+        // Kenney wheel is about 0.2 units radius, physics wheel is ~0.32
+        Vec3 wheel_size = obj_get_size(&g_vehicle_mesh.wheel);
+        float wheel_radius_model = fmaxf(wheel_size.x, wheel_size.y) * 0.5f;
+        g_vehicle_mesh.wheel_scale = 0.32f / wheel_radius_model;  // Scale to physics radius
+
+        // Store wheel center for proper positioning
+        g_vehicle_mesh.wheel_center = obj_get_center(&g_vehicle_mesh.wheel);
+
+        g_vehicle_mesh.loaded = true;
+        printf("Loaded vehicle model:\n");
+        printf("  Body: %.2f x %.2f x %.2f, scale: %.2f\n",
+               body_size.x, body_size.y, body_size.z, g_vehicle_mesh.body_scale);
+        printf("  Wheel: %.2f x %.2f x %.2f, scale: %.2f\n",
+               wheel_size.x, wheel_size.y, wheel_size.z, g_vehicle_mesh.wheel_scale);
     } else {
-        printf("Warning: Could not load car model, using placeholders\n");
+        if (!body_loaded) printf("Warning: Could not load car body mesh\n");
+        if (!wheel_loaded) printf("Warning: Could not load wheel mesh\n");
+        printf("Falling back to box rendering\n");
     }
 
     // Load equipment data (required for vehicle config parsing)
@@ -520,11 +623,52 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "*** Check assets/data/vehicles/sports_car.json ***\n\n");
     }
 
+    // Override chassis dimensions from mesh bounds if not set in JSON
+    // This allows dimensions to be derived from the OBJ model automatically
+    if (vehicle_ok && g_vehicle_mesh.loaded) {
+        Vec3 body_size = obj_get_size(&g_vehicle_mesh.body);
+        Vec3 body_center = obj_get_center(&g_vehicle_mesh.body);
+        float scale = g_vehicle_mesh.body_scale;
+
+        // OBJ model orientation: Z is length (front-to-back), X is width (side-to-side)
+        // This matches the Kenney car models where car faces along +Z
+        float mesh_length = body_size.z * scale;
+        float mesh_width = body_size.x * scale;
+        float mesh_height = body_size.y * scale;
+
+        printf("  OBJ bounds: size=[%.2f, %.2f, %.2f] center=[%.2f, %.2f, %.2f] (unscaled)\n",
+               body_size.x, body_size.y, body_size.z,
+               body_center.x, body_center.y, body_center.z);
+        printf("  OBJ bounds min=[%.2f, %.2f, %.2f] max=[%.2f, %.2f, %.2f]\n",
+               g_vehicle_mesh.body.bounds_min.x, g_vehicle_mesh.body.bounds_min.y, g_vehicle_mesh.body.bounds_min.z,
+               g_vehicle_mesh.body.bounds_max.x, g_vehicle_mesh.body.bounds_max.y, g_vehicle_mesh.body.bounds_max.z);
+
+        // If JSON didn't specify dimensions (0), use mesh bounds
+        if (vehicle_config.chassis_length <= 0.01f) {
+            vehicle_config.chassis_length = mesh_length;
+            vehicle_config.physics.chassis_length = mesh_length;
+        }
+        if (vehicle_config.chassis_width <= 0.01f) {
+            vehicle_config.chassis_width = mesh_width;
+            vehicle_config.physics.chassis_width = mesh_width;
+        }
+        if (vehicle_config.chassis_height <= 0.01f) {
+            vehicle_config.chassis_height = mesh_height;
+            vehicle_config.physics.chassis_height = mesh_height;
+        }
+
+        printf("  Physics dims: %.2fm x %.2fm x %.2fm (from %s)\n",
+               vehicle_config.chassis_length, vehicle_config.chassis_width,
+               vehicle_config.chassis_height,
+               (mesh_length > 0.01f) ? "mesh" : "JSON");
+    }
+
     // Initialize entity manager and create vehicles from scene (only if scene loaded)
     EntityManager entities;
     entity_manager_init(&entities);
     if (scene_ok && vehicle_ok) {
-        create_vehicles_from_scene(&entities, &scene_config, car_scale);
+        float entity_scale = g_vehicle_mesh.loaded ? g_vehicle_mesh.body_scale : 1.0f;
+        create_vehicles_from_scene(&entities, &scene_config, entity_scale);
     }
 
     // Initialize ODE physics
@@ -813,6 +957,17 @@ int main(int argc, char* argv[]) {
             printf("Physics debug %s\n", show_physics_debug ? "ON" : "OFF");
         }
 
+        // Debug: flip selected vehicle upside down with F
+        if (input.keys_pressed[KEY_F]) {
+            Entity* sel = entity_manager_get_selected(&entities);
+            if (sel && sel->id < MAX_ENTITIES && entity_to_physics[sel->id] >= 0) {
+                int phys_id = entity_to_physics[sel->id];
+                physics_vehicle_flip(&physics, phys_id);
+            } else {
+                printf("No vehicle selected to flip\n");
+            }
+        }
+
         // Toggle chase camera with C (requires selected vehicle)
         if (input.keys_pressed[KEY_C]) {
             Entity* sel = entity_manager_get_selected(&entities);
@@ -863,6 +1018,29 @@ int main(int argc, char* argv[]) {
             VehicleJSON new_vehicle_config;
             if (config_load_vehicle("../../assets/data/vehicles/sports_car.json", &new_vehicle_config)) {
                 vehicle_config = new_vehicle_config;
+
+                // Override chassis dimensions from mesh bounds (same as startup)
+                if (g_vehicle_mesh.loaded) {
+                    Vec3 body_size = obj_get_size(&g_vehicle_mesh.body);
+                    float scale = g_vehicle_mesh.body_scale;
+                    float mesh_length = body_size.z * scale;
+                    float mesh_width = body_size.x * scale;
+                    float mesh_height = body_size.y * scale;
+
+                    if (vehicle_config.chassis_length <= 0.01f) {
+                        vehicle_config.chassis_length = mesh_length;
+                        vehicle_config.physics.chassis_length = mesh_length;
+                    }
+                    if (vehicle_config.chassis_width <= 0.01f) {
+                        vehicle_config.chassis_width = mesh_width;
+                        vehicle_config.physics.chassis_width = mesh_width;
+                    }
+                    if (vehicle_config.chassis_height <= 0.01f) {
+                        vehicle_config.chassis_height = mesh_height;
+                        vehicle_config.physics.chassis_height = mesh_height;
+                    }
+                }
+
                 VehicleConfig vehicle_cfg = config_vehicle_to_physics(&vehicle_config);
 
                 // Destroy and recreate all physics vehicles with new config
@@ -1499,6 +1677,11 @@ int main(int argc, char* argv[]) {
 
             // Render physics vehicles as solid primitives (physics-first approach)
             draw_physics_vehicles(&box_renderer, &physics, selected_phys_id, team_for_vehicle);
+
+            // Draw wheel meshes at physics wheel positions (if mesh loaded)
+            if (g_vehicle_mesh.loaded) {
+                draw_vehicle_wheels_mesh(&box_renderer, &physics);
+            }
         }
         box_renderer_end(&box_renderer);
 
@@ -1506,72 +1689,9 @@ int main(int argc, char* argv[]) {
         if (has_lines) {
             line_renderer_begin(&line_renderer, &view, &projection);
 
-            // Draw wheels with rotating spokes
-            if (show_cars) {
+            // Draw wheels with rotating spokes (only if mesh not loaded - fallback)
+            if (show_cars && !g_vehicle_mesh.loaded) {
                 draw_vehicle_wheels(&line_renderer, &physics);
-            }
-
-            // Draw ghost path for selected vehicle
-            Entity* selected = entity_manager_get_selected(&entities);
-            if (selected) {
-                // Calculate predicted movement
-                int next_speed = calculate_next_speed(planning.current_speed, planning.speed_choice);
-                float move_dist = calculate_move_distance(next_speed);
-
-                // Height for ghost elements (raised above ground for visibility)
-                float ghost_y = 0.5f;
-
-                // Start and end positions (at ground level for path calc)
-                Vec3 start_ground = vec3(selected->position.x, 0, selected->position.z);
-                Vec3 end_ground = calculate_end_position(start_ground, selected->rotation_y, move_dist);
-
-                // Raised positions for rendering
-                Vec3 start = vec3(start_ground.x, ghost_y, start_ground.z);
-                Vec3 end = vec3(end_ground.x, ghost_y, end_ground.z);
-
-                // Debug output
-                if (debug_ghost) {
-                    printf("Ghost: speed=%d->%d, dist=%.2f, start=(%.1f,%.1f), end=(%.1f,%.1f), rot=%.2f\n",
-                           planning.current_speed, next_speed, move_dist,
-                           start.x, start.z, end.x, end.z, selected->rotation_y);
-                }
-
-                // Path line (cyan/teal color)
-                Vec3 path_color = vec3(0.0f, 0.8f, 0.8f);
-                if (move_dist > 0.01f) {
-                    line_renderer_draw_line(&line_renderer, start, end, path_color, 0.9f);
-                }
-
-                // Circle at start position (always show)
-                line_renderer_draw_circle(&line_renderer, start, 1.0f, path_color, 0.8f);
-
-                // Circle at end position (larger, shows where car will be)
-                Vec3 end_color = vec3(0.2f, 1.0f, 0.4f);  // Green for destination
-                line_renderer_draw_circle(&line_renderer, end, 1.5f, end_color, 0.9f);
-
-                // Draw ghost car outline at end position
-                float car_half_len = 2.25f;  // Half of CAR_LENGTH
-                float car_half_wid = 1.0f;   // Half of CAR_WIDTH
-                float cos_r = cosf(selected->rotation_y);
-                float sin_r = sinf(selected->rotation_y);
-
-                // Four corners of car at end position (raised)
-                Vec3 corners[5];
-                corners[0] = vec3(end.x + (-car_half_len * sin_r - car_half_wid * cos_r),
-                                  ghost_y,
-                                  end.z + (-car_half_len * cos_r + car_half_wid * sin_r));
-                corners[1] = vec3(end.x + (car_half_len * sin_r - car_half_wid * cos_r),
-                                  ghost_y,
-                                  end.z + (car_half_len * cos_r + car_half_wid * sin_r));
-                corners[2] = vec3(end.x + (car_half_len * sin_r + car_half_wid * cos_r),
-                                  ghost_y,
-                                  end.z + (car_half_len * cos_r - car_half_wid * sin_r));
-                corners[3] = vec3(end.x + (-car_half_len * sin_r + car_half_wid * cos_r),
-                                  ghost_y,
-                                  end.z + (-car_half_len * cos_r - car_half_wid * sin_r));
-                corners[4] = corners[0];  // Close the loop
-
-                line_renderer_draw_path(&line_renderer, corners, 5, end_color, 0.9f);
             }
 
             // Physics debug visualization (press P to toggle)
@@ -2231,7 +2351,8 @@ int main(int argc, char* argv[]) {
     if (has_lines) line_renderer_destroy(&line_renderer);
     if (has_text) text_renderer_destroy(&text_renderer);
     ui_renderer_destroy(&ui_renderer);
-    obj_destroy(&car_mesh);
+    obj_destroy(&g_vehicle_mesh.body);
+    obj_destroy(&g_vehicle_mesh.wheel);
     box_renderer_destroy(&box_renderer);
     floor_destroy(&arena_floor);
     platform_shutdown(&platform);

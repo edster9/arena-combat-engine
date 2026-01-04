@@ -48,6 +48,18 @@ void box_renderer_draw_rotated_matrix(BoxRenderer* r, Vec3 pos, Vec3 size, const
 void box_renderer_draw_mesh(BoxRenderer* r, GLuint vao, int vertex_count,
                             Vec3 pos, float scale, float rotation_y, Vec3 color);
 
+// Draw a loaded mesh with full 3x3 rotation matrix (column-major, like Jolt wheels)
+// Also takes per-axis scale factors and optional pre-translation (for centering)
+void box_renderer_draw_mesh_matrix(BoxRenderer* r, GLuint vao, int vertex_count,
+                                   Vec3 pos, Vec3 scale, const float* rot_matrix,
+                                   Vec3 pre_translate, Vec3 color);
+
+// Draw a loaded mesh with full 3x3 rotation matrix (row-major, like chassis)
+// scale is uniform, pre_translate offsets the mesh before rotation
+void box_renderer_draw_mesh_rotated(BoxRenderer* r, GLuint vao, int vertex_count,
+                                    Vec3 pos, float scale, const float* rot_matrix,
+                                    Vec3 pre_translate, Vec3 color);
+
 // End rendering (resets OpenGL state)
 void box_renderer_end(BoxRenderer* r);
 

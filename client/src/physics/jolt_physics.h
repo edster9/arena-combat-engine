@@ -281,6 +281,9 @@ void physics_vehicle_set_velocity(PhysicsWorld* pw, int vehicle_id, Vec3 velocit
 void physics_vehicle_nudge_lateral(PhysicsWorld* pw, int vehicle_id, float offset_meters);
 void physics_vehicle_set_heading(PhysicsWorld* pw, int vehicle_id, float heading_radians);
 
+// Debug: flip vehicle upside down (for testing physics behavior)
+void physics_vehicle_flip(PhysicsWorld* pw, int vehicle_id);
+
 // Debug visualization - call between line_renderer_begin/end
 struct LineRenderer;  // Forward declare
 void physics_debug_draw(PhysicsWorld* pw, struct LineRenderer* lr);

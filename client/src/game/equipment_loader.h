@@ -11,10 +11,17 @@
 #define MAX_EQUIPMENT_ID 64
 #define MAX_EQUIPMENT_NAME 64
 #define MAX_EQUIPMENT_ITEMS 64
+#define MAX_WHEEL_MOUNTS 6   // Support up to 6-wheel vehicles
 
 // Physics conversion constants
 #define LBS_TO_KG 0.453592f
 #define MPH_TO_MS 0.44704f
+
+// Wheel mount position (from chassis)
+typedef struct {
+    char id[16];        // e.g., "FL", "FR", "RL", "RR"
+    float position[3];  // [x, y, z] in chassis space
+} WheelMount;
 
 // Chassis equipment (body type)
 typedef struct {
@@ -24,7 +31,7 @@ typedef struct {
     int weight_lbs;
     int max_load_lbs;
     int spaces;
-    // Physics dimensions (meters)
+    // Physics dimensions (meters) - now derived from OBJ bounds
     float length_default;
     float length_min;
     float length_max;
@@ -38,6 +45,11 @@ typedef struct {
     float center_of_mass[3];
     // Handling class modifier (e.g., subcompact +1, van -1)
     int base_hc_modifier;
+    // Model path (relative to assets)
+    char model[128];
+    // Wheel mount positions
+    WheelMount wheel_mounts[MAX_WHEEL_MOUNTS];
+    int wheel_mount_count;
 } ChassisEquipment;
 
 // Power plant equipment

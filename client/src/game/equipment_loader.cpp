@@ -113,6 +113,31 @@ static bool load_chassis(const char* filepath) {
                     c->center_of_mass[2] = 0.0f;
                 }
             }
+
+            // Model path (relative to assets)
+            json_get_string(item, "model", c->model, 128, "");
+
+            // Wheel mount positions
+            c->wheel_mount_count = 0;
+            cJSON* mounts = cJSON_GetObjectItem(item, "wheel_mounts");
+            if (mounts && cJSON_IsArray(mounts)) {
+                cJSON* mount;
+                cJSON_ArrayForEach(mount, mounts) {
+                    if (c->wheel_mount_count >= MAX_WHEEL_MOUNTS) break;
+                    WheelMount* wm = &c->wheel_mounts[c->wheel_mount_count];
+
+                    json_get_string(mount, "id", wm->id, 16, "W");
+
+                    cJSON* pos = cJSON_GetObjectItem(mount, "position");
+                    if (pos && cJSON_IsArray(pos) && cJSON_GetArraySize(pos) >= 3) {
+                        wm->position[0] = (float)cJSON_GetArrayItem(pos, 0)->valuedouble;
+                        wm->position[1] = (float)cJSON_GetArrayItem(pos, 1)->valuedouble;
+                        wm->position[2] = (float)cJSON_GetArrayItem(pos, 2)->valuedouble;
+                    }
+                    c->wheel_mount_count++;
+                }
+            }
+
             g_equipment.chassis_count++;
         }
     }

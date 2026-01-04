@@ -293,6 +293,109 @@ void box_renderer_draw_mesh(BoxRenderer* r, GLuint vao, int vertex_count,
     glBindVertexArray(r->unit_box.vao);
 }
 
+void box_renderer_draw_mesh_matrix(BoxRenderer* r, GLuint vao, int vertex_count,
+                                   Vec3 pos, Vec3 scale, const float* rot_matrix,
+                                   Vec3 pre_translate, Vec3 color) {
+    // Build model matrix: T * R * S * T_pre
+    // Where T_pre centers the mesh, S scales it, R rotates it, and T positions it
+    // rot_matrix is column-major 3x3: [0-2]=X axis, [3-5]=Y axis, [6-8]=Z axis
+
+    // Scale each rotation column
+    float sx = scale.x, sy = scale.y, sz = scale.z;
+
+    // First apply pre-translation and scale
+    float px = pre_translate.x * sx;
+    float py = pre_translate.y * sy;
+    float pz = pre_translate.z * sz;
+
+    // Then rotate the pre-translation
+    float rpx = rot_matrix[0] * px + rot_matrix[3] * py + rot_matrix[6] * pz;
+    float rpy = rot_matrix[1] * px + rot_matrix[4] * py + rot_matrix[7] * pz;
+    float rpz = rot_matrix[2] * px + rot_matrix[5] * py + rot_matrix[8] * pz;
+
+    Mat4 model = mat4_identity();
+
+    // Rotation * Scale (column-major layout)
+    model.m[0] = rot_matrix[0] * sx;
+    model.m[1] = rot_matrix[1] * sx;
+    model.m[2] = rot_matrix[2] * sx;
+    model.m[3] = 0;
+
+    model.m[4] = rot_matrix[3] * sy;
+    model.m[5] = rot_matrix[4] * sy;
+    model.m[6] = rot_matrix[5] * sy;
+    model.m[7] = 0;
+
+    model.m[8] = rot_matrix[6] * sz;
+    model.m[9] = rot_matrix[7] * sz;
+    model.m[10] = rot_matrix[8] * sz;
+    model.m[11] = 0;
+
+    // Translation (includes rotated pre-translation)
+    model.m[12] = pos.x + rpx;
+    model.m[13] = pos.y + rpy;
+    model.m[14] = pos.z + rpz;
+    model.m[15] = 1;
+
+    glUniformMatrix4fv(r->u_model, 1, GL_FALSE, model.m);
+    glUniform3f(r->u_objectColor, color.x, color.y, color.z);
+
+    glBindVertexArray(vao);
+    glDrawArrays(GL_TRIANGLES, 0, vertex_count);
+    glBindVertexArray(r->unit_box.vao);
+}
+
+void box_renderer_draw_mesh_rotated(BoxRenderer* r, GLuint vao, int vertex_count,
+                                    Vec3 pos, float scale, const float* rot_matrix,
+                                    Vec3 pre_translate, Vec3 color) {
+    // Build model matrix: T * R * S * T_pre
+    // rot_matrix is 3x3 ROW-MAJOR (like chassis), convert to OpenGL column-major
+
+    // Apply pre-translation and scale
+    float px = pre_translate.x * scale;
+    float py = pre_translate.y * scale;
+    float pz = pre_translate.z * scale;
+
+    // Rotate the pre-translation (row-major: multiply by columns)
+    float rpx = rot_matrix[0] * px + rot_matrix[1] * py + rot_matrix[2] * pz;
+    float rpy = rot_matrix[3] * px + rot_matrix[4] * py + rot_matrix[5] * pz;
+    float rpz = rot_matrix[6] * px + rot_matrix[7] * py + rot_matrix[8] * pz;
+
+    Mat4 model = mat4_identity();
+
+    // Convert row-major to column-major: transpose while scaling
+    // Column 0 = Row 0 * scale
+    model.m[0] = rot_matrix[0] * scale;
+    model.m[1] = rot_matrix[3] * scale;
+    model.m[2] = rot_matrix[6] * scale;
+    model.m[3] = 0;
+
+    // Column 1 = Row 1 * scale
+    model.m[4] = rot_matrix[1] * scale;
+    model.m[5] = rot_matrix[4] * scale;
+    model.m[6] = rot_matrix[7] * scale;
+    model.m[7] = 0;
+
+    // Column 2 = Row 2 * scale
+    model.m[8] = rot_matrix[2] * scale;
+    model.m[9] = rot_matrix[5] * scale;
+    model.m[10] = rot_matrix[8] * scale;
+    model.m[11] = 0;
+
+    // Translation (includes rotated pre-translation)
+    model.m[12] = pos.x + rpx;
+    model.m[13] = pos.y + rpy;
+    model.m[14] = pos.z + rpz;
+    model.m[15] = 1;
+
+    glUniformMatrix4fv(r->u_model, 1, GL_FALSE, model.m);
+    glUniform3f(r->u_objectColor, color.x, color.y, color.z);
+
+    glBindVertexArray(vao);
+    glDrawArrays(GL_TRIANGLES, 0, vertex_count);
+    glBindVertexArray(r->unit_box.vao);
+}
+
 void box_renderer_end(BoxRenderer* r) {
     (void)r;
     glBindVertexArray(0);

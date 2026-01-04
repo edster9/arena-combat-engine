@@ -3,14 +3,7 @@
   "description": "Compact with twin-turbo 350 V8 - target sub-4s 0-60 (Corvette Z06 class)",
   "class": "wheeled",
 
-  "chassis": {
-    "body": "compact",
-    "modifier": "chassis_standard",
-    "frame": "frame_standard",
-    "length": 4.2,
-    "width": 1.9,
-    "height": 0.9
-  },
+  "chassis": "compact",
 
   "drivetrain": {
     "type": "single_motor",
@@ -19,22 +12,17 @@
     "driven_axles": ["front", "rear"]
   },
 
-  "wheels": [
-    { "id": "FL", "position": [1.2, -0.45, 0.85], "tire": "front_tires" },
-    { "id": "FR", "position": [1.2, -0.45, -0.85], "tire": "front_tires" },
-    { "id": "RL", "position": [-1.2, -0.45, 0.85], "tire": "rear_tires" },
-    { "id": "RR", "position": [-1.2, -0.45, -0.85], "tire": "rear_tires" }
-  ],
-
   "tires": [
     {
       "id": "front_tires",
+      "wheels": ["FL", "FR"],
       "type": "tire_standard",
       "modifiers": ["mod_racing_slick"],
       "size": { "radius": 0.32, "width": 0.22 }
     },
     {
       "id": "rear_tires",
+      "wheels": ["RL", "RR"],
       "type": "tire_standard",
       "modifiers": ["mod_racing_slick"],
       "size": { "radius": 0.32, "width": 0.22 }
